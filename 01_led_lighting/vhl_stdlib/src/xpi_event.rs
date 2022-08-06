@@ -1,18 +1,27 @@
+use crate::discrete::U;
 use crate::q_numbers::UQ;
 use crate::units::UnitStatic;
 
 /// Unique node id in the context of the Link
 /// May be absent if the link is point-to-point with only 2 nodes.
 pub type NodeId = Option<u32>;
+
 /// Sequence of numbers uniquely identifying an xPI resource
 /// If there is a group in the uri with not numerical index - maybe map to numbers as well?
-/// Might be narrowed down to less bits by a particular implementation
-pub type Uri<'i> = &'i [u16];
+/// Variable length encoding can be used that will result in 4/8/16 or 32 bits
+/// smallest size = 4 bits - 3 bits used - up to 7 resources, so that 49 resources can be addressed with just 1 byte
+/// 8 bits - 6 bits used - up to 63 resources
+/// 16 bits - 13 bits used - up to 4095 resources
+/// 32 bits - 28 bits used - up to 268_435_455 resources
+/// Most of the real use cases will fall into 4 or 8 bits, resulting in a very compact uri
+pub type Uri<'i> = &'i [U<28>];
+
 /// * 1 and higher — losses unacceptable to an extent, re-transmissions must be done, according to priority level.
 /// * 0 — losses are acceptable, no re-transmissions, e.g. heartbeat (maybe it actually should be high priority).
 /// * -1 and lower — losses are acceptable, but priority is given to lower numbers,
 ///     e.g. -1 can be assigned to a temperature stream and -2 to actuator position stream.
 pub type Priority = i8;
+
 /// Each outgoing request must be marked with an increasing number in order to distinguish
 ///     requests of the same kind and map responses
 /// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
