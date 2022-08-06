@@ -103,6 +103,9 @@ pub enum UriMask<'i> {
 /// (/b/z, indexes: 1) selects /b/z/v
 pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
+/// Unique identifier of a project inside the Registry.
+pub type RegistryProjectId = u32;
+
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
 /// One or several Responses are sent back for each kind of request.
 ///
@@ -112,8 +115,8 @@ pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 /// After subscribers node reboot, one or more responses may arrive, until publishing nodes notices
 /// subscribers reboot, unless subscribed again.
 pub struct XpiRequest<'req> {
-    /// Destination node id
-    pub destination_node: NodeId,
+    /// Destination node or nodes
+    pub node_set: NodeSet,
     /// Set of resources that are considered in this request
     pub resource_set: XpiResourceSet<'req>,
     /// What kind of operation is request on a set of resources
@@ -124,6 +127,36 @@ pub struct XpiRequest<'req> {
     /// Priority selection: lossy or lossless (to an extent).
     pub priority: Priority,
 }
+
+pub enum NodeSet<'i> {
+    /// Request is targeted at only one specific node.
+    /// Any resources can be used from the node's vhL description.
+    Unicast(NodeId),
+    /// Request is targeted at many nodes at once. Only nodes implementing a set of common traits can
+    /// be addressed that way.
+    ///
+    /// Trait in this context is an xPI block defined and published to the Registry with a particular version.
+    /// Might be thought of as an abstract class as well.
+    ///
+    /// Examples of xpi traits:
+    /// * log - to e.g. subscribe to all node's logs at once
+    /// * bootloader - to e.g. request all firmware versions
+    /// * power_mgmt - to e.g. put all nodes to sleep
+    /// Other more specific traits that only some nodes would implement:
+    /// * led_feedback - to e.g. enable or disable led on devices
+    /// * canbus_counters - to monitor CANBus status across the whole network
+    Multicast {
+        traits: &'i [XpiTrait<'i>]
+    },
+    // Broadcast,
+}
+
+pub struct XpiTrait<'i> {
+    registry_project_id: RegistryProjectId,
+    version: SemVer,
+    interface_path: &'i [&'i str],
+}
+
 
 /// It is possible to perform operations on a set of resources at once for reducing requests and
 /// responses amount.
@@ -339,7 +372,7 @@ pub enum XpiReplyKind<'rep> {
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
 /// Self node id
 /// No request id is sent or received for XpiMulti
-pub enum XpiMulti<'mul> {
+pub enum XpiBroadcast<'mul> {
     /// Broadcast request to all the nodes to announce themselves.
     /// Up to the user how to actually implement this (for example zeroconf or randomly
     /// delayed transmissions on CAN Bus if unique IDs wasn't assigned yet).
