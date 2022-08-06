@@ -1,10 +1,14 @@
 use crate::discrete::U;
 use crate::q_numbers::UQ;
 use crate::units::UnitStatic;
+use crate::varint::{VarInt, vlb4};
 
 /// Unique node id in the context of the Link
 /// May be absent if the link is point-to-point with only 2 nodes.
 pub type NodeId = Option<u32>;
+
+/// Resource index / serial
+pub type UriPart = VarInt<vlb4>;
 
 /// Sequence of numbers uniquely identifying an xPI resource
 /// If there is a group in the uri with not numerical index - maybe map to numbers as well?
@@ -14,7 +18,7 @@ pub type NodeId = Option<u32>;
 /// 16 bits - 13 bits used - up to 4095 resources
 /// 32 bits - 28 bits used - up to 268_435_455 resources
 /// Most of the real use cases will fall into 4 or 8 bits, resulting in a very compact uri
-pub type Uri<'i> = &'i [U<28>];
+pub type Uri<'i> = &'i [UriPart];
 
 /// * 1 and higher — losses unacceptable to an extent, re-transmissions must be done, according to priority level.
 /// * 0 — losses are acceptable, no re-transmissions, e.g. heartbeat (maybe it actually should be high priority).
@@ -26,7 +30,7 @@ pub type Priority = i8;
 ///     requests of the same kind and map responses
 /// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
 /// Should pause in that case or cancel all old requests.
-pub type RequestId = u32;
+pub type RequestId = u16;
 
 /// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
 /// select the level to which UriMask applies.
@@ -45,9 +49,13 @@ pub type RequestId = u32;
 pub enum LevelMask<'i> {
     /// Allows to choose any subgroup of up to 128 resources
     /// In Little Endian, so that adding resources to the end do not change previously used masks.
-    ByBitfield(u128),
+    ByBitfield8(u8),
+    ByBitfield16(u16),
+    ByBitfield32(u32),
+    ByBitfield64(u64),
+    ByBitfield128(u128),
     /// Allows to choose one or more resource by their indices
-    ByIndexes(&'i [u16]),
+    ByIndices(&'i [UriPart]),
     /// Select all resources
     All
 }
