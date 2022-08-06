@@ -295,6 +295,24 @@ pub enum XpiRequestKind<'req> {
 
     /// Borrow one or many resources for exclusive use. Only work ons streams and Cell<T> resources.
     /// Other nodes will receive an error if they attempt to access borrowed resources.
+    ///
+    /// Nodes may implement more logic to allow or block borrowing of a resource.
+    /// For example expecting a correct configuration or a key first.
+    /// /main {
+    ///     /key<wo String> {}
+    ///     /dangerous_things<Cell<_>> {
+    ///         /wipe_data<fn()> {}
+    ///     }
+    /// }
+    /// In this example one would first have to write a correct key and then try to borrow
+    /// /dangerous_things. If the key is incorrect, borrow can be rejected. Stronger security
+    /// algorithms can probably be also implemented to granularly restrict access.
+    /// Link between the nodes can also be encrypted, with a common key or a set of keys between all nodes.
+    /// Encryption is out of scope of this document though.
+    ///
+    /// Might be a good idea to introduce some limitation on how many borrows can be made from one node.
+    /// Depends on the kind of resource. Do not protect against malicious attempts, as node ids can be
+    /// faked, but can prevent bugs.
     Borrow,
 
     /// Release resources for others to use.
