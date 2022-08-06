@@ -8,28 +8,57 @@ use crate::varint::{VarInt, vlb4};
 pub type NodeId = Option<u32>;
 
 /// Resource index / serial
+/// LSB bit of each nibble == 1 means there is another nibble carrying 3 more bits.
+/// Little endian.
+/// Minimum size is 4b => 0..=7
+/// 8b => 0..=63
+/// 12b => 0..=511
+/// 16b => 0..=4095
 pub type UriPart = VarInt<vlb4>;
 
 /// Sequence of numbers uniquely identifying an xPI resource
-/// If there is a group in the uri with not numerical index - maybe map to numbers as well?
-/// Variable length encoding can be used that will result in 4/8/16 or 32 bits
-/// smallest size = 4 bits - 3 bits used - up to 7 resources, so that 49 resources can be addressed with just 1 byte
-/// 8 bits - 6 bits used - up to 63 resources
-/// 16 bits - 13 bits used - up to 4095 resources
-/// 32 bits - 28 bits used - up to 268_435_455 resources
-/// Most of the real use cases will fall into 4 or 8 bits, resulting in a very compact uri
+/// If there is a group in the uri with not numerical index - it must be mapped into numbers.
+///
+/// Variable length encoding is used consisting of nibbles. Uri = PartCount followed by Parts.
+/// Smallest size = 4 bits => empty Uri.
+/// 8 bits => up to 8 resources from root == / one of 8
+/// 12 bits => Uri(/ one of 8 / one of 8) or Uri(/one of 64)
+/// 16 bits => Uri(/ one of 8 / one of 64) or Uri(/one of 64 / one of 8) or Uri(/ one of 8 / one of 8 / one of 8)
+/// And so one with 4 bits steps.
+/// 32 bits => 28 bits used for Uri = 7 nibbles each carrying 3 bits => up to 2_097_152 resources addressable.
+/// Most of the realistic use cases will fall into 12 or 16 bits, resulting in a very compact uri
 pub type Uri<'i> = &'i [UriPart];
 
-/// * 1 and higher — losses unacceptable to an extent, re-transmissions must be done, according to priority level.
-/// * 0 — losses are acceptable, no re-transmissions, e.g. heartbeat (maybe it actually should be high priority).
-/// * -1 and lower — losses are acceptable, but priority is given to lower numbers,
-///     e.g. -1 can be assigned to a temperature stream and -2 to actuator position stream.
-pub type Priority = i8;
+/// Priority selection: lossy or lossless (to an extent).
+/// Truly lossless mode is not achievable, for example if connection is physically lost mid-transfer,
+/// or memory is exceeded.
+///
+/// Higher priority in either mode means higher chance of successfully transferring a message.
+/// If channels is wide enough, all messages will go through unaffected.
+///
+/// Some form of fair queueing must be implemented not to starve lossy channels by lossless ones.
+/// Or several underlying channels may be used to separate the two. Up to the Link to decide on
+/// implementation.
+///
+/// Some form of rate shaping should be implemented to be able to work with different channel speeds.
+/// Rates can be changed in real time, limiting property observing or streams bandwidth.
+/// TCP algorithms for congestion control may be applied here?
+/// Alternatively discrete event simulation may be attempted to prove lossless properties.
+/// Knowing streaming rates and precise size of various messages can help with that.
+///
+/// If loss occurs in lossy mode, it is silently ignored.
+/// If loss occurs in lossless mode, it is flagged as an error.
+///
+/// Priority may be mapped into fewer levels by the underlying Link? (needed for constrained channels)
+pub enum Priority {
+    Lossy(U<7>), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
+    Lossless(U<7>),
+}
 
 /// Each outgoing request must be marked with an increasing number in order to distinguish
-///     requests of the same kind and map responses
+/// requests of the same kind and map responses.
 /// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
-/// Should pause in that case or cancel all old requests.
+/// Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
 pub type RequestId = u16;
 
 /// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
@@ -46,9 +75,9 @@ pub type RequestId = u16;
 ///         /v
 /// For example at level /a LevelMask::ByBitfield(0b011) selects /a/2 and /a/3
 /// If the same mask were applied at level /b then /b/y and /b/z would be selected.
-pub enum LevelMask<'i> {
+pub enum UriMask<'i> {
     /// Allows to choose any subgroup of up to 128 resources
-    /// In Little Endian, so that adding resources to the end do not change previously used masks.
+    /// Resource serial are mapped as Little Endian, so that adding resources to the end do not change previously used masks.
     ByBitfield8(u8),
     ByBitfield16(u16),
     ByBitfield32(u32),
@@ -64,7 +93,7 @@ pub enum LevelMask<'i> {
 /// operations on them all at once. Operations are performed sequentially in order of the resources
 /// serial numbers, depth first. Responses to read requests or stream published values are arranged
 /// in arbitrary order, that is deemed optimal at a time, all with proper uris attached, so it's possible
-/// to distinguish them. So in response to one request, one or many responses may arrive.
+/// to distinguish them. In response to one request, one or many responses may arrive.
 /// Maximum packets sizes, publishing and observing rates, maximum jitter is taken into account when
 /// grouping responses together.
 ///
@@ -72,15 +101,82 @@ pub enum LevelMask<'i> {
 /// (/a, bitfield: 0b110), (/b, bitfield: 0b011) selects /a/2, /a/3, /b/x, /b/y
 /// (/b, bitfield: 0b100) select /b/z/u and /b/z/v
 /// (/b/z, indexes: 1) selects /b/z/v
-pub type MultiUri<'i> = &'i [(Uri<'i>, LevelMask<'i>)];
+pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
-/// Outgoing requests from the node into the Link.
-/// When submitting request, additional values must be also provided:
-/// Self node's id to distinguish nodes
-/// Destination node id
-/// RequestId to distinguish requests and map responses back to them
-/// Priority to properly queue things
-pub enum XpiRequest<'req> {
+/// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
+/// One or several Responses are sent back for each kind of request.
+///
+/// In case of subscribing to property updates or streams, responses will continue to arrive
+/// until unsubscribed, stream exhausted or closed or one of the nodes rebooting.
+///
+/// After subscribers node reboot, one or more responses may arrive, until publishing nodes notices
+/// subscribers reboot, unless subscribed again.
+pub struct XpiRequest<'req> {
+    /// Destination node id
+    pub destination_node: NodeId,
+    /// Set of resources that are considered in this request
+    pub resource_set: XpiResourceSet<'req>,
+    /// What kind of operation is request on a set of resources
+    pub kind: XpiRequestKind<'req>,
+    /// Modulo number to map responses with requests.
+    /// When wrapping to 0, if there are any outgoing unanswered requests that are not subscriptions.
+    pub request_id: RequestId,
+    /// Priority selection: lossy or lossless (to an extent).
+    pub priority: Priority,
+}
+
+/// It is possible to perform operations on a set of resources at once for reducing requests and
+/// responses amount.
+///
+/// If operation is only targeted at one resource, there are more efficient ways to select it than
+/// using [MultiUri].
+/// It is possible to select one resource in several different ways for efficiency reasons.
+/// If there are several choices on how to construct the same uri, select the smallest one in size.
+/// If both choices are the same size, choose [Uri].
+///
+/// [MultiUri] is the only way to select several resources at once within one request.
+pub enum XpiResourceSet<'i> {
+    /// One of the alternative addressing modes.
+    /// Selects / one of 16.
+    /// Size required is 4 bits. Same Uri would be 12 bits.
+    Alpha(U<4>),
+
+    /// One of the alternative addressing modes.
+    /// Selects / one of 16 / one of 16.
+    /// Size required is 8 bits. Same Uri would be 20 bits.
+    Beta(U<4>, U<4>),
+
+    /// One of the alternative addressing modes.
+    /// Selects / one of 16 / one of 16 / one of 16.
+    /// Size required is 12 bits. Same Uri would be 28 bits.
+    Gamma(U<4>, U<4>, U<4>),
+
+    /// One of the alternative addressing modes.
+    /// Selects / one of 64 / one of 8 / one of 8.
+    /// Size required is 12 bits. Same Uri would be 20 bits.
+    Delta(U<6>, U<3>, U<3>),
+
+    /// One of the alternative addressing modes.
+    /// Selects / one of 64 / one of 64 / one of 16.
+    /// Size required is 16 bits. Same Uri would be 28 bits.
+    Epsilon(U<6>, U<6>, U<4>),
+
+    /// Select any one resource at any depth.
+    /// May use more space than alpha-epsilon modes.
+    /// Size required is variable, most use cases should be in the range of 16-20 bits.
+    /// Minimum size is 4 bits for 0 sized Uri (root / resource) - also the way to select
+    /// root resource (probably never needed).
+    Uri(Uri<'i>),
+
+    /// Selects any set of resources at any depths at once.
+    /// Use more space than Uri and alpha-epsilon modes but selects a whole set at once.
+    /// Minimum size is 12 bits for one 0 sized Uri and [UriMask::All] - selecting all resources
+    /// at root level ( / * ).
+    MultiUri(MultiUri<'i>),
+}
+
+/// Select what to do with one ore more selected resources.
+pub enum XpiRequestKind<'req> {
     /// Request binary descriptor block from a node.
     /// Descriptor block is a compiled binary version of a vhL source.
     /// It carries all the important information that is needed to interact with the node.
@@ -96,21 +192,31 @@ pub enum XpiRequest<'req> {
     /// Call one or more methods.
     /// Results in [XpiReply::FnCallFailed] or [XpiReply::FnReturn] for each method.
     Call {
-        uris: MultiUri<'req>,
         /// Arguments must be serialized with the chosen [Wire Format](https://github.com/vhrdtech/vhl/blob/master/book/src/wire_formats/wire_formats.md)
         /// Need to get buffer for serializing from user code, which decides how to handle memory
         args: &'req[ &'req [u8] ],
     },
 
+    /// Perform f(g(h(... (args) ...))) call on the destination node, saving round trip request and replies.
+    /// Arguments must be compatible across all the members of a chain.
+    /// One response is sent back for the outer most function.
+    /// May not be supported by all nodes.
+    /// Do not cover all the weird use cases, so maybe better be replaced with full-blown expression
+    /// executor only were applicable and really needed?
+    ChainCall {
+        args: &'req [u8],
+    },
+
     /// Read one or more resources.
     /// Reading several resources at once is more efficient as only one req-rep is needed in best case.
     /// Resources that support reads are: const, ro, ro + stream, rw, rw + stream
-    Read(MultiUri<'req>),
+    Read,
 
     /// Write one or more resources.
     /// Resources that support writes are: wo, wo + stream, rw, rw + stream, stream_in<T> when open only.
     Write {
-        uris: MultiUri<'req>,
+        /// Must be exactly the size of non-zero resources selected for writing in order of
+        /// increasing serial numbers, depth first.
         values: &'req[ &'req [u8] ],
     },
 
@@ -127,48 +233,65 @@ pub enum XpiRequest<'req> {
     /// Stream thus have a start and an end in contrast to properties with a +stream modifier.
     /// Stream are also inherently Borrowable (so writing stream_in<T> is equivalent to Cell<stream_in<T>>).
     /// When opening a closed stream, it is automatically borrowed. Opening an open stream returns an error.
-    OpenStreams(MultiUri<'req>),
+    OpenStreams,
 
     /// Closes one or more streams.
     /// Can be used as an end mark for writing a file for example.
-    CloseStreams(MultiUri<'req>),
+    CloseStreams,
 
-    /// Subscribe to property changes or streams
-    /// For each uri there must be a specified [Rate] provided.
+    /// Subscribe to property changes or streams.
     /// Resources must be be rw + stream, ro + stream or stream_out<T>.
+    ///
+    /// To change rates, subscribe again to the same or different set of resources.
+    ///
+    /// Publishers must avoid emitting changes with higher than requested rates.
     Subscribe {
-        uris: MultiUri<'req>,
+        /// For each uri there must be a specified [Rate] provided.
         rates: &'req [Rate],
     },
 
-    /// Request a change in properties observing or stream publishing rates.
-    ChangeRates {
-        uris: MultiUri<'req>,
-        rates: &'req [Rate],
-    },
+    // /// Request a change in properties observing or stream publishing rates.
+    // ChangeRates {
+    //     /// For each uri there must be a specified [Rate] provided.
+    //     rates: &'req [Rate],
+    // },
 
     /// Unsubscribe from one or many resources, unsubscribing from a stream do not close it,
     /// but releases a borrow, so that someone else can subscribe and continue receiving data.
-    Unsubscribe(MultiUri<'req>),
+    Unsubscribe,
 
     /// Borrow one or many resources for exclusive use. Only work ons streams and Cell<T> resources.
     /// Other nodes will receive an error if they attempt to access borrowed resources.
-    Borrow(MultiUri<'req>),
+    Borrow,
 
     /// Release resources for others to use.
-    Release(MultiUri<'req>),
+    Release,
 }
 
+/// Replies are sent to the Link in response to requests.
+/// One request can result in one or more replies.
+/// For subscriptions and streams many replies will be sent asynchronously.
+pub struct XpiReply<'rep> {
+    /// Source node id that yielded reply
+    pub source_node: NodeId,
+    /// Kind of reply
+    pub kind: XpiRequestKind<'rep>,
+    /// Set of resources that are considered in this reply
+    pub resource_set: XpiResourceSet<'rep>,
+    /// Original request id used to map responses to requests.
+    /// None for StreamsUpdates kind.
+    pub request_id: Option<RequestId>,
+}
 /// Reply to a previously made request
 /// Each reply must also be linked with:
 /// request id that was sent initially
 /// Source node id
-pub enum XpiReply<'rep> {
+pub enum XpiReplyKind<'rep> {
     /// Result of an each call
     CallComplete(Result<&'rep [u8], FailReason>),
 
     /// Result of an each read.
-    ReadComplete(Result<&'rep [u8], FailReason>),
+    ReadComplete(Result<&'rep [&'rep [u8]], FailReason>),
 
     /// Result of an each read
     WriteComplete(Result<(), FailReason>),
@@ -177,15 +300,28 @@ pub enum XpiReply<'rep> {
     /// If stream was closed before (and inherently not borrowed), Borrow(Ok(())) is received,
     /// followed by OpenStream(Ok(()))
     OpenStream(Result<(), FailReason>),
-    /// Result of an attempt to close a stream.
+
+    /// One or more changed properties and/or stream updates.
+    /// request_id for this case is None, as counter may wrap many times while subscriptions are active.
+    /// Mapping is straight forward without a request_id, since uri for each resource is known.
+    /// Distinguishing between different updates is not needed as in case of 2 function calls vs 1 for example.
+    ///
+    /// Updates may be silently lost if lossy mode is selected, more likely so with lower priority.
+    ///
+    /// Updates are very unlikely to be lost in lossless mode, unless underlying channel is destroyed
+    /// or memory is exceeded, in which case only an error can be reported to flag the issue.
+    /// If lossless channel is affected, CloseStream is yielded with a failure reason indicated in it.
+    StreamsUpdates(&'rep [&'rep [u8]]),
+
+    /// Result of an attempt to close a stream or unrecoverable loss in lossless mode (priority > 0).
     /// If stream was open before (and inherently borrowed by self node), Close(Ok(())) is received,
     /// followed by Release(Ok(())).
     CloseStream(Result<(), FailReason>),
 
     /// Result of an attempt to subscribe to a stream or observable property
-    /// On success Some(current value) is returned for a property, first available chunk is returned
+    /// On success Some(current value) is returned for a property, first available item is returned
     /// for streams, if available during subscription time.
-    Subscribe(Result<&'rep [u8], FailReason>),
+    Subscribe(Result<Option<&'rep [u8]>, FailReason>),
 
     /// Result of a request to change observing / publishing rate.
     RateChange(Result<(), FailReason>),
@@ -210,7 +346,9 @@ pub enum XpiMulti<'mul> {
     DiscoverNodes,
     /// Sent by nodes in response to [XpiRequest::DiscoverNodes]. Received by everyone else.
     NodeInfo(NodeInfo<'mul>),
-    /// Send by all nodes periodically, received by all nodes.
+    /// Sent by all nodes periodically, received by all nodes.
+    /// Must be sent with maximum lossy priority.
+    /// If emergency stop messages exist in a system, heartbeats should be sent with the next lower priority.
     Heartbeat(HeartbeatInfo),
 }
 
@@ -274,6 +412,11 @@ pub enum FailReason {
     DeviceRebooted,
     /// Request or response wasn't fitted into memory because more important data was needing space at a time.
     PriorityLoss,
+    /// Request rejected by rate shaper, even if space was available, not to exceed underlying channel bandwidth.
+    /// Rejecting function calls and other non-streaming operations must be avoided.
+    /// First lossy requests / subscriptions should be shaped. Then lossless (while still giving a fair
+    /// chance to lossy ones) and in the latest are all other requests and responses.
+    ShaperReject,
     /// When trying to access a resource that was already borrowed by someone else
     ResourceIsAlreadyBorrowed,
     /// When trying to unsubscribe twice from a resource
@@ -281,7 +424,7 @@ pub enum FailReason {
     /// When trying to open a stream twice
     StreamIsAlreadyOpen,
     /// When trying to close a stream twice
-    StreamIsAlreadyClose,
+    StreamIsAlreadyClosed,
     /// When trying to write into a const or ro property, write into stream_out or read from stream_in.
     OperationNotSupported,
 }
