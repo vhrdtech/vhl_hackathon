@@ -1,7 +1,7 @@
 use crate::discrete::U;
 use crate::q_numbers::UQ;
 use crate::units::UnitStatic;
-use crate::varint::{VarInt, vlb4};
+use crate::varint::{VarInt, vlu4};
 
 /// Unique node id in the context of the Link
 /// May be absent if the link is point-to-point with only 2 nodes.
@@ -14,7 +14,7 @@ pub type NodeId = Option<u32>;
 /// 8b => 0..=63
 /// 12b => 0..=511
 /// 16b => 0..=4095
-pub type UriPart = VarInt<vlb4>;
+pub type UriPart = VarInt<vlu4>;
 
 /// Sequence of numbers uniquely identifying an xPI resource
 /// If there is a group in the uri with not numerical index - it must be mapped into numbers.
@@ -234,7 +234,8 @@ pub enum XpiRequestKind<'req> {
         args: &'req[ &'req [u8] ],
     },
 
-    /// Perform f(g(h(... (args) ...))) call on the destination node, saving round trip request and replies.
+    /// Perform f(g(h(... (args) ...))) call on the destination node, saving
+    /// round trip request and replies.
     /// Arguments must be compatible across all the members of a chain.
     /// One response is sent back for the outer most function.
     /// May not be supported by all nodes.
@@ -416,25 +417,37 @@ pub enum ResourceInfo<'i> {
         borrowed_by: NodeId,
         /// TODO: Not sure whether multiple stream subscribers is needed, and how to get around Cell in that case
         subscribers: &'i [NodeId],
-        /// Current instant rate of this stream, may differ from requested by congestion control
-        current_rate: Rate,
-        /// Rate that was requested when subscribing
-        requested_rate: Rate,
-        /// Maximum allowed rate of this stream
-        maximum_rate: Rate,
+        rates: RatesInfo,
     },
-    StreamProperty {
+    RwStreamProperty {
         subscribers: &'i [NodeId],
-        /// Current instant rate of this stream, may differ from requested by congestion control
-        current_rate: Rate,
-        /// Rate that was requested when subscribing
-        requested_rate: Rate,
-        /// Maximum allowed rate of this stream
-        maximum_rate: Rate,
+        /// Incoming data rates
+        rates_in: RatesInfo,
+        /// Outgoing data rates
+        rates_out: RatesInfo,
+    },
+    WoStreamProperty {
+        subscribers: &'i [NodeId],
+        /// Incoming data rates
+        rates_in: RatesInfo,
+    },
+    RoStreamProperty {
+        subscribers: &'i [NodeId],
+        /// Outgoing data rates
+        rates_out: RatesInfo,
     },
     Array {
-        size: VarInt<vlb4>,
+        size: VarInt<vlu4>,
     }
+}
+
+pub struct RatesInfo {
+    /// Current instant rate of this stream, may differ from requested by congestion control
+    current_rate: Rate,
+    /// Rate that was requested when subscribing
+    requested_rate: Rate,
+    /// Maximum allowed rate of this stream
+    maximum_rate: Rate,
 }
 
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
