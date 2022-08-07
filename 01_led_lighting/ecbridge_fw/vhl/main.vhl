@@ -1,4 +1,13 @@
 /main {
-    #[rtic(to_local_resources)]
-    /symbol<rw char, '0>
+    /// Should be initialized on the node and passed to the dispatcher
+    /constant<const u8, '0>
+
+    /// Should go to local resources in rtic
+    /symbol<rw char, '1>
+
+    /// Should spawn a task
+    /set_digit< fn(digit: u8), '2>
+
+    /// Should be called directly from dispatcher
+    /sync< fn(), '3>
 }

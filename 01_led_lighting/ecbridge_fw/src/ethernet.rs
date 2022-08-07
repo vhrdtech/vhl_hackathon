@@ -129,10 +129,12 @@ pub fn init(
     (net, lan8742a)
 }
 
-pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
+pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
     unsafe { ethernet_h7::interrupt_handler() }
     ctx.local.led_act.toggle();
     let time = crate::TIME.load(Ordering::Relaxed);
+
+    let tcp_handle = ctx.local.net.tcp_handle;
 
     for i in 0..10 {
         let might_be_new_data = ctx.local.net.poll(time as i64);
@@ -141,7 +143,7 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
         }
         rprintln!("ethernet_event it: {}", i);
         let tcp_socket: &mut TcpSocket = ctx.local.net.iface.get_socket(
-            ctx.local.net.tcp_handle
+            tcp_handle
         );
         rprintln!("{:?}", tcp_socket.state());
 
@@ -153,6 +155,7 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
             rprintln!("tcp_socket: listen(): {:?}", r);
         }
 
+        let mut fake = false;
         if tcp_socket.can_recv() {
             match tcp_socket.recv(|buffer| {
                 // dequeue the amount returned
@@ -161,11 +164,17 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
                 Ok(buf) => {
                     rprintln!("tcp_socket: recv: {} {:02x?}", buf.len(), buf);
                     //link_process(buf);
+                    // Not possible to use ctx here, will not be a problem with bbqueue
+                    // crate::vhlink::link_process(&mut ctx, buf);
+                    fake = true;
                 }
                 Err(e) => {
                     rprintln!("tcp_socket: recv: {:?}", e);
                 }
             }
+        }
+        if fake {
+            crate::vhlink::link_process(&mut ctx, &[0, 1, 2]);
         }
     }
 }

@@ -4,6 +4,7 @@
 
 mod ethernet;
 mod vhlink;
+mod xpi_dispatch;
 
 use panic_rtt_target as _;
 use core::sync::atomic::{AtomicU32};
@@ -25,7 +26,7 @@ fn systick_init(mut syst: stm32::SYST, clocks: CoreClocks) {
 /// TIME is an atomic u32 that counts milliseconds.
 static TIME: AtomicU32 = AtomicU32::new(0);
 
-#[rtic::app(device = stm32h7xx_hal::stm32, peripherals = true)]
+#[rtic::app(device = stm32h7xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2, SAI3, SAI4])]
 mod app {
     use stm32h7xx_hal::{gpio, prelude::*};
 
@@ -36,7 +37,12 @@ mod app {
     use ethernet::ethernet_event;
 
     #[shared]
-    struct SharedResources {}
+    struct SharedResources {
+        /// Example of a vhL property placed in RTIC resources
+        /// Maybe possible to generate with a proc_macro!
+        /// Even better if possible to add notify_task to it
+        symbol: char,
+    }
     #[local]
     struct LocalResources {
         net: ethernet::Net<'static>,
@@ -45,12 +51,7 @@ mod app {
         led_link: gpio::gpioe::PE10<gpio::Output<gpio::PushPull>>,
         led_act: gpio::gpioe::PE11<gpio::Output<gpio::PushPull>>,
 
-        /// Example of a vhL property placed in RTIC resources
-        /// Definition should be:
-        /// #[rtic(to_local_resources)]
-        /// /symbol<rw char, '0>
-        /// Maybe possible to generate with a proc_macro!
-        symbol: char,
+
     }
 
     #[init]
@@ -129,9 +130,29 @@ mod app {
         // 1ms tick
         systick_init(ctx.core.SYST, ccdr.clocks);
 
+        // OLED
+        // let mut oled_pwr_dis = gpiod.pd15.into_push_pull_output();
+        // oled_pwr_dis.set_low();
+        //
+        // let oled_scl = gpiod.pd12.into_alternate().set_open_drain();
+        // let oled_sda = gpiod.pd13.into_alternate().set_open_drain();
+        // let mut oled_rst = gpiod.pd14.into_push_pull_output();
+        // oled_rst.set_high();
+        // delay.delay_ms(10_u16); // garbage with 1ms
+        //
+        // let mut i2c_oled = dp.I2C4.i2c(
+        //     (oled_scl, oled_sda), 100.kHz(), ccdr.peripheral.I2C4, &ccdr.clocks);
+        //
+        // let oled_interface = I2CDisplayInterface::new(i2c_oled);
+        // let mut display = Ssd1306::new(oled_interface, DisplaySize72x40, DisplayRotation::Rotate0)
+        //     .into_buffered_graphics_mode();
+        // display.init().unwrap();
+
         rprintln!("All init done");
         (
-            SharedResources {},
+            SharedResources {
+                symbol: '-'
+            },
             LocalResources {
                 net,
                 lan8742a,
@@ -139,7 +160,6 @@ mod app {
                 led_link,
                 led_act,
 
-                symbol: '-'
             },
             init::Monotonics(),
         )
@@ -156,8 +176,15 @@ mod app {
         }
     }
 
+    /// Must be spawned on Call to /set_digit
+    #[task]
+    fn set_digit(_ctx: set_digit::Context, digit: u8) {
+        rprintln!(=>3, "set_digit task: {}", digit);
+    }
+
     extern "Rust" {
-        #[task(binds = ETH, local = [net, led_act])]
+        // Challenge - how to assemble all the resources names automatically?
+        #[task(binds = ETH, shared = [symbol], local = [net, led_act])]
         fn ethernet_event(_: ethernet_event::Context);
     }
 
@@ -165,4 +192,9 @@ mod app {
     fn systick_tick(_: systick_tick::Context) {
         TIME.fetch_add(1, Ordering::Relaxed);
     }
+}
+
+/// Must be called directly from dispatcher on Call to /sync
+fn sync_fn() {
+    rprintln!(=>3, "sync_fn() called");
 }
