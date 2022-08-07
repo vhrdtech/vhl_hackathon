@@ -4,6 +4,7 @@ pub struct Unit {
 
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct UnitStatic<
     X,
     //SCALE,

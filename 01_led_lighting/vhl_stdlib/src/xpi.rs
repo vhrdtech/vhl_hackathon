@@ -51,6 +51,7 @@ pub type Uri<'i> = &'i [UriPart];
 /// If loss occurs in lossless mode, it is flagged as an error.
 ///
 /// Priority may be mapped into fewer levels by the underlying Link? (needed for constrained channels)
+#[derive(Copy, Clone, Debug)]
 pub enum Priority {
     Lossy(U7Sp1), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
     Lossless(U7Sp1),
@@ -76,6 +77,7 @@ pub type RequestId = u16;
 ///         /v
 /// For example at level /a LevelMask::ByBitfield(0b011) selects /a/2 and /a/3
 /// If the same mask were applied at level /b then /b/y and /b/z would be selected.
+#[derive(Copy, Clone, Debug)]
 pub enum UriMask<'i> {
     /// Allows to choose any subgroup of up to 128 resources
     /// Resource serial are mapped as Little Endian, so that adding resources to the end do not change previously used masks.
@@ -105,12 +107,14 @@ pub enum UriMask<'i> {
 pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
 /// Global type id from the Registry
+#[derive(Copy, Clone, Debug)]
 pub struct GlobalTypeId {
     pub id: u32,
 
 }
 
 /// Unique identifier compatibility checker of a type inside the Registry.
+#[derive(Copy, Clone, Debug)]
 pub struct GlobalTypeIdBound {
     /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
     /// username + project name + file name + module name + identifier
@@ -128,6 +132,7 @@ pub struct GlobalTypeIdBound {
 ///
 /// After subscribers node reboot, one or more responses may arrive, until publishing nodes notices
 /// subscribers reboot, unless subscribed again.
+#[derive(Copy, Clone, Debug)]
 pub struct XpiRequest<'req> {
     /// Destination node or nodes
     pub node_set: NodeSet<'req>,
@@ -142,6 +147,7 @@ pub struct XpiRequest<'req> {
     pub priority: Priority,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum NodeSet<'i> {
     /// Request is targeted at only one specific node.
     /// Any resources can be used from the node's vhL description.
@@ -180,6 +186,7 @@ pub enum NodeSet<'i> {
 /// If both choices are the same size, choose [Uri].
 ///
 /// [MultiUri] is the only way to select several resources at once within one request.
+#[derive(Copy, Clone, Debug)]
 pub enum XpiResourceSet<'i> {
     /// One of the alternative addressing modes.
     /// Selects / one of 16.
@@ -221,6 +228,7 @@ pub enum XpiResourceSet<'i> {
 }
 
 /// Select what to do with one ore more selected resources.
+#[derive(Copy, Clone, Debug)]
 pub enum XpiRequestKind<'req> {
     /// Request binary descriptor block from a node.
     /// Descriptor block is a compiled binary version of a vhL source.
@@ -347,6 +355,7 @@ pub enum XpiRequestKind<'req> {
 /// Replies are sent to the Link in response to requests.
 /// One request can result in one or more replies.
 /// For subscriptions and streams many replies will be sent asynchronously.
+#[derive(Copy, Clone, Debug)]
 pub struct XpiReply<'rep> {
     /// Source node id that yielded reply
     pub source_node: NodeId,
@@ -358,10 +367,12 @@ pub struct XpiReply<'rep> {
     /// None for StreamsUpdates kind.
     pub request_id: Option<RequestId>,
 }
+
 /// Reply to a previously made request
 /// Each reply must also be linked with:
 /// request id that was sent initially
 /// Source node id
+#[derive(Copy, Clone, Debug)]
 pub enum XpiReplyKind<'rep> {
     /// Result of an each call
     CallComplete(Result<&'rep [u8], FailReason>),
@@ -415,6 +426,7 @@ pub enum XpiReplyKind<'rep> {
     Info(Result<ResourceInfo<'rep>, FailReason>),
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum ResourceInfo<'i> {
     FreeResource,
     BorrowedResource {
@@ -451,6 +463,7 @@ pub enum ResourceInfo<'i> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct RatesInfo {
     /// Current instant rate of this stream, may differ from requested by congestion control
     pub current_rate: Rate,
@@ -463,6 +476,7 @@ pub struct RatesInfo {
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
 /// Self node id
 /// No request id is sent or received for XpiMulti
+#[derive(Copy, Clone, Debug)]
 pub enum XpiBroadcast<'mul> {
     /// Broadcast request to all the nodes to announce themselves.
     /// Up to the user how to actually implement this (for example zeroconf or randomly
@@ -476,6 +490,7 @@ pub enum XpiBroadcast<'mul> {
     Heartbeat(HeartbeatInfo),
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct NodeInfo<'info> {
     /// User friendly name of the node, maybe changeable through it's xPI
     pub friendly_name: &'info str,
@@ -490,6 +505,7 @@ pub struct NodeInfo<'info> {
     pub vhl_version: Version,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum PlatformInfo {
     Mcu {
         // series, core, hw_info (name, revision, variant), firmware_info (name, features, version, repo+sha, crc, size, signature)
@@ -515,11 +531,13 @@ pub enum PlatformInfo {
 ///
 /// CAN Bus note: should be possible to encode more data into the same frame for more specific info.
 /// So that resources are preserved. Expose it through node's own xPI.
+#[derive(Copy, Clone, Debug)]
 pub struct HeartbeatInfo {
     pub health: NodeHealthStatus,
     pub uptime_seconds: u32,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum NodeHealthStatus {
     /// Fully functioning node
     Norminal,
@@ -529,6 +547,7 @@ pub enum NodeHealthStatus {
     Failure
 }
 
+#[derive(Copy, Clone, Debug)]
 pub enum FailReason {
     /// No response was received in time
     Timeout,
@@ -554,7 +573,10 @@ pub enum FailReason {
 }
 
 /// Observing or publishing rate in [Hz].
+#[derive(Copy, Clone, Debug)]
 pub struct Rate(UnitStatic<UqC<24, 8>, -1, 0, 0, 0, 0, 0, 0>);
 
+#[derive(Copy, Clone, Debug)]
 pub struct Version;
+#[derive(Copy, Clone, Debug)]
 pub struct VersionReq;
