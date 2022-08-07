@@ -103,11 +103,17 @@ pub enum UriMask<'i> {
 /// (/b/z, indexes: 1) selects /b/z/v
 pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
-/// Unique identifier of a type inside the Registry.
+/// Global type id from the Registry
+pub struct GlobalTypeId {
+    pub id: U<38>,
+
+}
+
+/// Unique identifier compatibility checker of a type inside the Registry.
 pub struct GlobalTypeIdBound {
     /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
     /// username + project name + file name + module name + identifier
-    pub unique_id: U<36>,
+    pub unique_id: GlobalTypeId,
     /// Which version to choose from
     pub semver_req: SemVerBound,
 }
@@ -324,6 +330,8 @@ pub enum XpiRequestKind<'req> {
     Release,
 
     /// Get information about resources.
+    /// Type information for all resources.
+    /// In addition:
     /// * Cell<T>: whether resource is borrowed or not.
     /// * stream_in<T> or stream_out<T>: whether stream is opened or
     /// not (when implicit Cell is already borrowed) + subscribers info + rates.
