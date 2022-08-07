@@ -1,5 +1,6 @@
-use crate::discrete::U;
-use crate::q_numbers::UQ;
+// use semver::Version;
+use crate::discrete::{U3, U4, U6, U7Sp1};
+use crate::q_numbers::{UqC};
 use crate::units::UnitStatic;
 use crate::varint::{VarInt, vlu4};
 
@@ -51,8 +52,8 @@ pub type Uri<'i> = &'i [UriPart];
 ///
 /// Priority may be mapped into fewer levels by the underlying Link? (needed for constrained channels)
 pub enum Priority {
-    Lossy(U<7>), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
-    Lossless(U<7>),
+    Lossy(U7Sp1), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
+    Lossless(U7Sp1),
 }
 
 /// Each outgoing request must be marked with an increasing number in order to distinguish
@@ -105,7 +106,7 @@ pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
 /// Global type id from the Registry
 pub struct GlobalTypeId {
-    pub id: U<38>,
+    pub id: u32,
 
 }
 
@@ -115,7 +116,8 @@ pub struct GlobalTypeIdBound {
     /// username + project name + file name + module name + identifier
     pub unique_id: GlobalTypeId,
     /// Which version to choose from
-    pub semver_req: SemVerBound,
+    // pub semver_req: VersionReq, // need to avoid Vec
+    pub semver_req: (),
 }
 
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
@@ -182,27 +184,27 @@ pub enum XpiResourceSet<'i> {
     /// One of the alternative addressing modes.
     /// Selects / one of 16.
     /// Size required is 4 bits. Same Uri would be 12 bits.
-    Alpha(U<4>),
+    Alpha(U4),
 
     /// One of the alternative addressing modes.
     /// Selects / one of 16 / one of 16.
     /// Size required is 8 bits. Same Uri would be 20 bits.
-    Beta(U<4>, U<4>),
+    Beta(U4, U4),
 
     /// One of the alternative addressing modes.
     /// Selects / one of 16 / one of 16 / one of 16.
     /// Size required is 12 bits. Same Uri would be 28 bits.
-    Gamma(U<4>, U<4>, U<4>),
+    Gamma(U4, U4, U4),
 
     /// One of the alternative addressing modes.
     /// Selects / one of 64 / one of 8 / one of 8.
     /// Size required is 12 bits. Same Uri would be 20 bits.
-    Delta(U<6>, U<3>, U<3>),
+    Delta(U6, U3, U3),
 
     /// One of the alternative addressing modes.
     /// Selects / one of 64 / one of 64 / one of 16.
     /// Size required is 16 bits. Same Uri would be 28 bits.
-    Epsilon(U<6>, U<6>, U<4>),
+    Epsilon(U6, U6, U4),
 
     /// Select any one resource at any depth.
     /// May use more space than alpha-epsilon modes.
@@ -451,11 +453,11 @@ pub enum ResourceInfo<'i> {
 
 pub struct RatesInfo {
     /// Current instant rate of this stream, may differ from requested by congestion control
-    current_rate: Rate,
+    pub current_rate: Rate,
     /// Rate that was requested when subscribing
-    requested_rate: Rate,
+    pub requested_rate: Rate,
     /// Maximum allowed rate of this stream
-    maximum_rate: Rate,
+    pub maximum_rate: Rate,
 }
 
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
@@ -476,16 +478,16 @@ pub enum XpiBroadcast<'mul> {
 
 pub struct NodeInfo<'info> {
     /// User friendly name of the node, maybe changeable through it's xPI
-    friendly_name: &'info str,
+    pub friendly_name: &'info str,
     /// Information about the underlying platform this node is running on
-    running_on: PlatformInfo,
+    pub running_on: PlatformInfo,
     /// UUID of the node, shouldn't change during operation, may change on reboot or can be fixed in firmware
-    uuid: u128,
+    pub uuid: u128,
     /// Unique id of the project in [vhL Registry](https://www.notion.so/vhrdtech/vhL-Registry-5799542cf9dd41b0a92c702aa05f8c42).
     /// Node must implement and follow vhL sources of the exact version published
-    vhl_registry_id: u32,
+    pub vhl_registry_id: u32,
     /// Version of the project in the Registry.
-    vhl_version: SemVer,
+    pub vhl_version: Version,
 }
 
 pub enum PlatformInfo {
@@ -493,7 +495,7 @@ pub enum PlatformInfo {
         // series, core, hw_info (name, revision, variant), firmware_info (name, features, version, repo+sha, crc, size, signature)
     },
     Wasm {
-        running_on: PlatformInfo,
+        // running_on: PlatformInfo,
         // vm_info:
     },
     Mac,
@@ -514,8 +516,8 @@ pub enum PlatformInfo {
 /// CAN Bus note: should be possible to encode more data into the same frame for more specific info.
 /// So that resources are preserved. Expose it through node's own xPI.
 pub struct HeartbeatInfo {
-    health: NodeHealthStatus,
-    uptime_seconds: u32,
+    pub health: NodeHealthStatus,
+    pub uptime_seconds: u32,
 }
 
 pub enum NodeHealthStatus {
@@ -552,4 +554,7 @@ pub enum FailReason {
 }
 
 /// Observing or publishing rate in [Hz].
-pub struct Rate(UnitStatic<UQS<24, 8>, -1, 0, 0, 0, 0, 0, 0>);
+pub struct Rate(UnitStatic<UqC<24, 8>, -1, 0, 0, 0, 0, 0, 0>);
+
+pub struct Version;
+pub struct VersionReq;

@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 pub struct Unit {
 
 }
@@ -13,5 +15,5 @@ pub struct UnitStatic<
     const N: isize,
     const J: isize
 > {
-
+    _phantom: PhantomData<X>,
 }

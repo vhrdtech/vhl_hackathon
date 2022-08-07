@@ -1,11 +1,11 @@
 use crate::units::Unit;
 
-pub struct UQ {
-    m: usize,
-    n: usize,
-    unit: Unit,
+pub struct Uq {
+    pub m: usize,
+    pub n: usize,
+    pub unit: Unit,
 }
 
-pub struct UQ_C<const M: usize, const N: usize> {
+pub struct UqC<const M: usize, const N: usize> {
 
 }
