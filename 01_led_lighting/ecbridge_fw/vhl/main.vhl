@@ -1,0 +1,4 @@
+/main {
+    #[rtic(to_local_resources)]
+    /symbol<rw char, '0>
+}
