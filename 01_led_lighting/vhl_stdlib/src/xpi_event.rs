@@ -103,8 +103,14 @@ pub enum UriMask<'i> {
 /// (/b/z, indexes: 1) selects /b/z/v
 pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
 
-/// Unique identifier of a project inside the Registry.
-pub type RegistryProjectId = u32;
+/// Unique identifier of a type inside the Registry.
+pub struct GlobalTypeIdBound {
+    /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
+    /// username + project name + file name + module name + identifier
+    pub unique_id: U<36>,
+    /// Which version to choose from
+    pub semver_req: SemVerBound,
+}
 
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
 /// One or several Responses are sent back for each kind of request.
@@ -116,7 +122,7 @@ pub type RegistryProjectId = u32;
 /// subscribers reboot, unless subscribed again.
 pub struct XpiRequest<'req> {
     /// Destination node or nodes
-    pub node_set: NodeSet,
+    pub node_set: NodeSet<'req>,
     /// Set of resources that are considered in this request
     pub resource_set: XpiResourceSet<'req>,
     /// What kind of operation is request on a set of resources
@@ -146,17 +152,15 @@ pub enum NodeSet<'i> {
     /// * led_feedback - to e.g. enable or disable led on devices
     /// * canbus_counters - to monitor CANBus status across the whole network
     Multicast {
-        traits: &'i [XpiTrait<'i>]
+        /// List of traits a node have to implement.
+        /// Uri structure is arranged differently for this kind of requests.
+        /// For example if 3 traits were provided, then there are /0, /1, /2 resources,
+        /// each corresponding to the trait specified, in order.
+        /// So e.g. it is possible to call 3 different functions from 3 different traits in one request.
+        traits: &'i [GlobalTypeIdBound],
     },
     // Broadcast,
 }
-
-pub struct XpiTrait<'i> {
-    registry_project_id: RegistryProjectId,
-    version: SemVer,
-    interface_path: &'i [&'i str],
-}
-
 
 /// It is possible to perform operations on a set of resources at once for reducing requests and
 /// responses amount.
@@ -317,6 +321,16 @@ pub enum XpiRequestKind<'req> {
 
     /// Release resources for others to use.
     Release,
+
+    /// Get information about resources.
+    /// * Cell<T>: whether resource is borrowed or not.
+    /// * stream_in<T> or stream_out<T>: whether stream is opened or
+    /// not (when implicit Cell is already borrowed) + subscribers info + rates.
+    /// * +stream: subscribers info + rates
+    /// * fn: nothing at the moment
+    /// * const: nothing at the moment
+    /// * array of resources: size of the array
+    GetInfo,
 }
 
 /// Replies are sent to the Link in response to requests.
@@ -352,7 +366,7 @@ pub enum XpiReplyKind<'rep> {
     /// followed by OpenStream(Ok(()))
     OpenStream(Result<(), FailReason>),
 
-    /// One or more changed properties and/or stream updates.
+    /// Changed property or new element of a stream.
     /// request_id for this case is None, as counter may wrap many times while subscriptions are active.
     /// Mapping is straight forward without a request_id, since uri for each resource is known.
     /// Distinguishing between different updates is not needed as in case of 2 function calls vs 1 for example.
@@ -362,7 +376,7 @@ pub enum XpiReplyKind<'rep> {
     /// Updates are very unlikely to be lost in lossless mode, unless underlying channel is destroyed
     /// or memory is exceeded, in which case only an error can be reported to flag the issue.
     /// If lossless channel is affected, CloseStream is yielded with a failure reason indicated in it.
-    StreamsUpdates(&'rep [&'rep [u8]]),
+    StreamUpdate(&'rep [u8]),
 
     /// Result of an attempt to close a stream or unrecoverable loss in lossless mode (priority > 0).
     /// If stream was open before (and inherently borrowed by self node), Close(Ok(())) is received,
@@ -385,6 +399,42 @@ pub enum XpiReplyKind<'rep> {
     Borrow(Result<(), FailReason>),
     /// Result of a resource release
     Release(Result<(), FailReason>),
+
+    /// Result of a GetInfo request
+    Info(Result<ResourceInfo<'rep>, FailReason>),
+}
+
+pub enum ResourceInfo<'i> {
+    FreeResource,
+    BorrowedResource {
+        borrowed_by: NodeId
+    },
+    ClosedStream,
+    OpenStream {
+        /// As all streams are implicitly wrapped in a Cell<_> in order to use it, node have to
+        /// make a borrow first.
+        borrowed_by: NodeId,
+        /// TODO: Not sure whether multiple stream subscribers is needed, and how to get around Cell in that case
+        subscribers: &'i [NodeId],
+        /// Current instant rate of this stream, may differ from requested by congestion control
+        current_rate: Rate,
+        /// Rate that was requested when subscribing
+        requested_rate: Rate,
+        /// Maximum allowed rate of this stream
+        maximum_rate: Rate,
+    },
+    StreamProperty {
+        subscribers: &'i [NodeId],
+        /// Current instant rate of this stream, may differ from requested by congestion control
+        current_rate: Rate,
+        /// Rate that was requested when subscribing
+        requested_rate: Rate,
+        /// Maximum allowed rate of this stream
+        maximum_rate: Rate,
+    },
+    Array {
+        size: VarInt<vlb4>,
+    }
 }
 
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
