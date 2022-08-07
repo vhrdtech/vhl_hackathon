@@ -129,12 +129,13 @@ pub fn init(
     (net, lan8742a)
 }
 
-pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
+pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
     unsafe { ethernet_h7::interrupt_handler() }
     ctx.local.led_act.toggle();
     let time = crate::TIME.load(Ordering::Relaxed);
 
     let tcp_handle = ctx.local.net.tcp_handle;
+    let eth_out_prod: &mut bbqueue::Producer<512> = ctx.local.eth_out_prod;
 
     for i in 0..10 {
         let might_be_new_data = ctx.local.net.poll(time as i64);
@@ -155,26 +156,31 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
             rprintln!("tcp_socket: listen(): {:?}", r);
         }
 
-        let mut fake = false;
         if tcp_socket.can_recv() {
             match tcp_socket.recv(|buffer| {
                 // dequeue the amount returned
                 (buffer.len(), buffer)
             }) {
                 Ok(buf) => {
-                    rprintln!("tcp_socket: recv: {} {:02x?}", buf.len(), buf);
-                    //link_process(buf);
-                    // Not possible to use ctx here, will not be a problem with bbqueue
-                    // crate::vhlink::link_process(&mut ctx, buf);
-                    fake = true;
+                    // rprintln!("tcp_socket: recv: {} {:02x?}", buf.len(), buf);
+                    match eth_out_prod.grant_exact(buf.len()) {
+                        Ok(mut wgr) => {
+                            wgr.copy_from_slice(buf);
+                            wgr.commit(buf.len());
+                            let r = crate::app::link_process::spawn();
+                            if r.is_err() {
+                                rprintln!("link_process: spawn failed");
+                            }
+                        }
+                        Err(_) => {
+                            rprintln!("grant failed");
+                        }
+                    }
                 }
                 Err(e) => {
                     rprintln!("tcp_socket: recv: {:?}", e);
                 }
             }
-        }
-        if fake {
-            crate::vhlink::link_process(&mut ctx, &[0, 1, 2]);
         }
     }
 }

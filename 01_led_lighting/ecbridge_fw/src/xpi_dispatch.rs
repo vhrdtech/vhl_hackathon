@@ -2,7 +2,7 @@ use rtt_target::rprintln;
 use vhl_stdlib::xpi::*;
 use rtic::Mutex;
 
-pub type DispatcherContext<'c> = crate::app::ethernet_event::Context<'c>;
+pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
 
 // dispatcher still runs in the protocol task
 // should be configurable by user what to do next with requests

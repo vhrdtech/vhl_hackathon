@@ -32,9 +32,11 @@ mod app {
 
     use super::*;
     use core::sync::atomic::Ordering;
+    use bbqueue::BBBuffer;
     use rtt_target::rtt_init_print;
 
     use ethernet::ethernet_event;
+    use vhlink::link_process;
 
     #[shared]
     struct SharedResources {
@@ -46,7 +48,10 @@ mod app {
     #[local]
     struct LocalResources {
         net: ethernet::Net<'static>,
+        eth_out_prod: bbqueue::Producer<'static, 512>,
         lan8742a: ethernet::Lan8742A,
+
+        eth_out_cons: bbqueue::Consumer<'static, 512>,
 
         led_link: gpio::gpioe::PE10<gpio::Output<gpio::PushPull>>,
         led_act: gpio::gpioe::PE11<gpio::Output<gpio::PushPull>>,
@@ -54,7 +59,7 @@ mod app {
 
     }
 
-    #[init]
+    #[init(local = [eth_out_bb: BBBuffer<512> = BBBuffer::new()])]
     fn init(
         mut ctx: init::Context,
     ) -> (SharedResources, LocalResources, init::Monotonics) {
@@ -148,6 +153,9 @@ mod app {
         //     .into_buffered_graphics_mode();
         // display.init().unwrap();
 
+        // Create queues
+        let (eth_out_prod, eth_out_cons) = ctx.local.eth_out_bb.try_split().unwrap();
+
         rprintln!("All init done");
         (
             SharedResources {
@@ -155,7 +163,10 @@ mod app {
             },
             LocalResources {
                 net,
+                eth_out_prod,
                 lan8742a,
+
+                eth_out_cons,
 
                 led_link,
                 led_act,
@@ -176,6 +187,8 @@ mod app {
         }
     }
 
+
+
     /// Must be spawned on Call to /set_digit
     #[task]
     fn set_digit(_ctx: set_digit::Context, digit: u8) {
@@ -184,8 +197,11 @@ mod app {
 
     extern "Rust" {
         // Challenge - how to assemble all the resources names automatically?
-        #[task(binds = ETH, shared = [symbol], local = [net, led_act])]
+        #[task(binds = ETH, priority = 2, local = [net, led_act, eth_out_prod])]
         fn ethernet_event(_: ethernet_event::Context);
+
+        #[task(shared = [symbol], local = [eth_out_cons])]
+        fn link_process(_: link_process::Context);
     }
 
     #[task(binds = SysTick, priority=15)]

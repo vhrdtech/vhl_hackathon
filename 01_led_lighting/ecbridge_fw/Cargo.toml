@@ -10,7 +10,7 @@ stm32h7xx-hal = { version = "0.12.2", features = ["rt", "stm32h743v", "ethernet"
 cortex-m-rtic = "1.1.2"
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1.2", features = ["cortex-m"] }
-smoltcp = { version = "0.8.1", default-features = false, features = [
+smoltcp = { version = "^0.8.1", default-features = false, features = [
     #    "log",
     "medium-ethernet",
     #    "medium-ip",
@@ -25,6 +25,7 @@ smoltcp = { version = "0.8.1", default-features = false, features = [
     "socket-tcp",
     #    "socket-dhcpv4",
 ] }
+bbqueue = "^0.5.1"
 ssd1306 = "0.7.0"
 embedded-graphics = "0.7.1"
 #uavcan-llr = { features = ["vhrdcan"], git = "https://github.com/vhrdtech/uavcan-llr.git" }
