@@ -5,6 +5,7 @@
 mod ethernet;
 mod vhlink;
 mod xpi_dispatch;
+mod oled;
 
 use panic_rtt_target as _;
 use rtt_target::rprintln;
@@ -22,10 +23,13 @@ mod app {
 
     use ethernet::ethernet_event;
     use vhlink::link_process;
+    use oled::display_task;
 
     #[monotonic(binds = SysTick, default = true)]
     type DwtSystMono = DwtSystick<CORE_FREQ>;
     use dwt_systick_monotonic::ExtU64;
+    use ssd1306::prelude::*;
+    use stm32h7xx_hal::delay::DelayFromCountDownTimer;
 
     #[shared]
     struct SharedResources {
@@ -45,7 +49,7 @@ mod app {
         led_link: gpio::gpioe::PE10<gpio::Output<gpio::PushPull>>,
         led_act: gpio::gpioe::PE11<gpio::Output<gpio::PushPull>>,
 
-
+        display: oled::DisplayTy,
     }
 
     #[init(local = [eth_out_bb: BBBuffer<512> = BBBuffer::new()])]
@@ -83,6 +87,7 @@ mod app {
         let gpioa = ctx.device.GPIOA.split(ccdr.peripheral.GPIOA);
         let gpiob = ctx.device.GPIOB.split(ccdr.peripheral.GPIOB);
         let gpioc = ctx.device.GPIOC.split(ccdr.peripheral.GPIOC);
+        let gpiod = ctx.device.GPIOD.split(ccdr.peripheral.GPIOD);
         let _gpiog = ctx.device.GPIOG.split(ccdr.peripheral.GPIOG);
         let gpioe = ctx.device.GPIOE.split(ccdr.peripheral.GPIOE);
         let mut led_link = gpioe.pe10.into_push_pull_output();
@@ -126,29 +131,39 @@ mod app {
             &ccdr.clocks,
         );
 
+        // Delay provider
+        let timer2 = ctx.device
+            .TIM2
+            .timer(1.kHz(), ccdr.peripheral.TIM2, &ccdr.clocks);
+        let mut delay = DelayFromCountDownTimer::new(timer2);
+
         // OLED
-        // let mut oled_pwr_dis = gpiod.pd15.into_push_pull_output();
-        // oled_pwr_dis.set_low();
-        //
-        // let oled_scl = gpiod.pd12.into_alternate().set_open_drain();
-        // let oled_sda = gpiod.pd13.into_alternate().set_open_drain();
-        // let mut oled_rst = gpiod.pd14.into_push_pull_output();
-        // oled_rst.set_high();
-        // delay.delay_ms(10_u16); // garbage with 1ms
-        //
-        // let mut i2c_oled = dp.I2C4.i2c(
-        //     (oled_scl, oled_sda), 100.kHz(), ccdr.peripheral.I2C4, &ccdr.clocks);
-        //
-        // let oled_interface = I2CDisplayInterface::new(i2c_oled);
-        // let mut display = Ssd1306::new(oled_interface, DisplaySize72x40, DisplayRotation::Rotate0)
-        //     .into_buffered_graphics_mode();
-        // display.init().unwrap();
+        let mut oled_pwr_dis = gpiod.pd15.into_push_pull_output();
+        oled_pwr_dis.set_low();
+
+        let oled_scl = gpiod.pd12.into_alternate().set_open_drain();
+        let oled_sda = gpiod.pd13.into_alternate().set_open_drain();
+        let mut oled_rst = gpiod.pd14.into_push_pull_output();
+        oled_rst.set_high();
+        delay.delay_ms(10_u32); // garbage with 1ms
+
+        let i2c_oled = ctx.device.I2C4.i2c(
+            (oled_scl, oled_sda), 100.kHz(), ccdr.peripheral.I2C4, &ccdr.clocks);
+
+        let oled_interface = ssd1306::I2CDisplayInterface::new(i2c_oled);
+        let mut display = ssd1306::Ssd1306::new(
+            oled_interface,
+            ssd1306::size::DisplaySize72x40,
+            ssd1306::rotation::DisplayRotation::Rotate0
+        ).into_buffered_graphics_mode();
+        display.init().unwrap();
 
         // Create queues
         let (eth_out_prod, eth_out_cons) = ctx.local.eth_out_bb.try_split().unwrap();
 
         // Spawn tasks
         // blinky::spawn_after(1u64.secs()).unwrap();
+        display_task::spawn().unwrap();
 
         rprintln!("All init done");
         (
@@ -162,6 +177,7 @@ mod app {
 
                 eth_out_cons,
 
+                display,
                 led_link,
                 led_act,
 
@@ -201,6 +217,9 @@ mod app {
 
         #[task(shared = [symbol], local = [eth_out_cons])]
         fn link_process(_: link_process::Context);
+
+        #[task(local = [display])]
+        fn display_task(_: display_task::Context);
     }
 }
 
