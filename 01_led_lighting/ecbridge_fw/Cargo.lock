@@ -195,6 +195,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dwt-systick-monotonic"
+version = "1.0.0"
+source = "git+https://github.com/rtic-rs/dwt-systick-monotonic.git#726a35731eb25484fb55172a7cb1b4f01c5a3864"
+dependencies = [
+ "cfg-if",
+ "cortex-m",
+ "fugit",
+ "rtic-monotonic",
+]
+
+[[package]]
 name = "ecbridge_fw"
 version = "0.1.0"
 dependencies = [
@@ -202,6 +213,7 @@ dependencies = [
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",
+ "dwt-systick-monotonic",
  "embedded-graphics",
  "panic-rtt-target",
  "rtt-target",
@@ -630,9 +642,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "stm32h7"
-version = "0.14.0"
+version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f0faa648e03579befdd7267ab5c669624729028001fcf3c973832f53e310a06"
+checksum = "362f288cd8341e9209587b889c385f323e82fc237b60c272868965bb879bb9b1"
 dependencies = [
  "bare-metal 1.0.0",
  "cortex-m",
@@ -643,10 +655,9 @@ dependencies = [
 [[package]]
 name = "stm32h7xx-hal"
 version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05ed63600f7ec63598de2c7645fcc0745133921d77fe6dd92b94a5f45ff9669e"
 dependencies = [
  "bare-metal 1.0.0",
+ "bitflags",
  "cast",
  "cortex-m",
  "embedded-dma",

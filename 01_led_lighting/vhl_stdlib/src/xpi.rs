@@ -349,7 +349,7 @@ pub enum XpiRequestKind<'req> {
     /// * fn: nothing at the moment
     /// * const: nothing at the moment
     /// * array of resources: size of the array
-    GetInfo,
+    Introspect,
 }
 
 /// Replies are sent to the Link in response to requests.
@@ -422,8 +422,8 @@ pub enum XpiReplyKind<'rep> {
     /// Result of a resource release
     Release(Result<(), FailReason>),
 
-    /// Result of a GetInfo request
-    Info(Result<ResourceInfo<'rep>, FailReason>),
+    /// Result of an Introspect request
+    Introspect(Result<ResourceInfo<'rep>, FailReason>),
 }
 
 #[derive(Copy, Clone, Debug)]

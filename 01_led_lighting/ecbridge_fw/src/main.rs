@@ -7,36 +7,25 @@ mod vhlink;
 mod xpi_dispatch;
 
 use panic_rtt_target as _;
-use core::sync::atomic::{AtomicU32};
 use rtt_target::rprintln;
-use stm32h7xx_hal::{rcc::CoreClocks, stm32};
 
-/// Configure SYSTICK for 1ms timebase
-fn systick_init(mut syst: stm32::SYST, clocks: CoreClocks) {
-    let c_ck_mhz = clocks.c_ck().to_MHz();
-
-    let syst_calib = 0x3E8;
-
-    syst.set_clock_source(cortex_m::peripheral::syst::SystClkSource::Core);
-    syst.set_reload((syst_calib * c_ck_mhz) - 1);
-    syst.enable_interrupt();
-    syst.enable_counter();
-}
-
-/// TIME is an atomic u32 that counts milliseconds.
-static TIME: AtomicU32 = AtomicU32::new(0);
+pub const CORE_FREQ: u32 = 200_000_000;
 
 #[rtic::app(device = stm32h7xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2, SAI3, SAI4])]
 mod app {
+    use dwt_systick_monotonic::DwtSystick;
     use stm32h7xx_hal::{gpio, prelude::*};
 
     use super::*;
-    use core::sync::atomic::Ordering;
     use bbqueue::BBBuffer;
     use rtt_target::rtt_init_print;
 
     use ethernet::ethernet_event;
     use vhlink::link_process;
+
+    #[monotonic(binds = SysTick, default = true)]
+    type DwtSystMono = DwtSystick<CORE_FREQ>;
+    use dwt_systick_monotonic::ExtU64;
 
     #[shared]
     struct SharedResources {
@@ -74,15 +63,20 @@ mod app {
         // Initialise clocks...
         let rcc = ctx.device.RCC.constrain();
         let ccdr = rcc
-            .sys_ck(200.MHz())
-            .hclk(200.MHz())
+            .sys_ck(CORE_FREQ.Hz())
+            .hclk(CORE_FREQ.Hz())
             .freeze(pwrcfg, &ctx.device.SYSCFG);
 
         // Initialise system...
         ctx.core.SCB.enable_icache();
         // TODO: ETH DMA coherence issues
         // ctx.core.SCB.enable_dcache(&mut ctx.core.CPUID);
-        ctx.core.DWT.enable_cycle_counter();
+
+        let mut dcb = ctx.core.DCB;
+        let dwt = ctx.core.DWT;
+        let systick = ctx.core.SYST;
+        let mono = DwtSystick::new(&mut dcb, dwt, systick, CORE_FREQ);
+
         rprintln!("Core init done");
 
         // Initialise IO...
@@ -132,9 +126,6 @@ mod app {
             &ccdr.clocks,
         );
 
-        // 1ms tick
-        systick_init(ctx.core.SYST, ccdr.clocks);
-
         // OLED
         // let mut oled_pwr_dis = gpiod.pd15.into_push_pull_output();
         // oled_pwr_dis.set_low();
@@ -156,6 +147,9 @@ mod app {
         // Create queues
         let (eth_out_prod, eth_out_cons) = ctx.local.eth_out_bb.try_split().unwrap();
 
+        // Spawn tasks
+        // blinky::spawn_after(1u64.secs()).unwrap();
+
         rprintln!("All init done");
         (
             SharedResources {
@@ -172,7 +166,7 @@ mod app {
                 led_act,
 
             },
-            init::Monotonics(),
+            init::Monotonics(mono),
         )
     }
 
@@ -187,7 +181,12 @@ mod app {
         }
     }
 
-
+    #[task]
+    fn blinky(_ctx: blinky::Context) {
+        let time = crate::app::monotonics::now().duration_since_epoch().to_millis();
+        rprintln!("now: {}ms", time);
+        blinky::spawn_after(1u64.secs()).unwrap();
+    }
 
     /// Must be spawned on Call to /set_digit
     #[task]
@@ -202,11 +201,6 @@ mod app {
 
         #[task(shared = [symbol], local = [eth_out_cons])]
         fn link_process(_: link_process::Context);
-    }
-
-    #[task(binds = SysTick, priority=15)]
-    fn systick_tick(_: systick_tick::Context) {
-        TIME.fetch_add(1, Ordering::Relaxed);
     }
 }
 

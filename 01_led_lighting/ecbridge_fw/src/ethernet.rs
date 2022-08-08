@@ -1,5 +1,4 @@
 use core::mem::size_of;
-use core::sync::atomic::Ordering;
 use smoltcp::iface::{
     Interface, InterfaceBuilder, Neighbor, NeighborCache, Route, Routes,
     SocketStorage,
@@ -172,12 +171,13 @@ impl TryFrom<smoltcp::wire::IpAddress> for IpAddressL {
 pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
     unsafe { ethernet_h7::interrupt_handler() }
     ctx.local.led_act.toggle();
-    let time = crate::TIME.load(Ordering::Relaxed);
 
     let tcp_handle = ctx.local.net.tcp_handle;
     let eth_out_prod: &mut bbqueue::Producer<512> = ctx.local.eth_out_prod;
 
     for i in 0..10 {
+        let time = crate::app::monotonics::now().duration_since_epoch().to_millis();
+
         let might_be_new_data = ctx.local.net.poll(time as i64);
         if !might_be_new_data {
             break;

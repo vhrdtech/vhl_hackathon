@@ -6,8 +6,10 @@ edition = "2021"
 [dependencies]
 cortex-m = "0.7.4"
 cortex-m-rt = "0.7.1"
-stm32h7xx-hal = { version = "0.12.2", features = ["rt", "stm32h743v", "ethernet"] }
+stm32h7xx-hal = { path = "../../../stm32h7xx-hal", version = "0.12.2", features = ["rt", "stm32h743v", "ethernet"] }
 cortex-m-rtic = "1.1.2"
+#dwt-systick-monotonic = "^1.0.0"
+dwt-systick-monotonic = { git = "https://github.com/rtic-rs/dwt-systick-monotonic.git", features = ["extend"] }
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
 panic-rtt-target = { version = "0.1.2", features = ["cortex-m"] }
 smoltcp = { version = "^0.8.1", default-features = false, features = [
