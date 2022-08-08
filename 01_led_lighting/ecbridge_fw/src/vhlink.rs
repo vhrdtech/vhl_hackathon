@@ -2,6 +2,7 @@ use rtt_target::rprintln;
 
 use vhl_stdlib::xpi::*;
 use vhl_stdlib::discrete::*;
+use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
 
 // ethernet / can irq task -> put data onto bbqueue?
@@ -14,7 +15,13 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
     match eth_out_cons.read() {
         Ok(rgr) => {
             let rgr_len = rgr.len();
-            rprintln!(=>1, "link_process got: {}B {:02x?}", rgr_len, &rgr);
+            // let endpoint = IpEndpoint::des(&rgr).expect("endpoint is wrong");
+            rprintln!(=>1, "{:?}", rgr);
+            let endpoint: (IpEndpointL, usize) = ssmarshal::deserialize(&rgr).unwrap();
+            let (endpoint, endpoint_size) = (endpoint.0, endpoint.1);
+            let buf = &rgr[endpoint_size..];
+
+            rprintln!(=>1, "link_process got: {}B from {:?} {:02x?}", rgr_len, endpoint, buf);
 
             let xpi_request = XpiRequest {
                 node_set: NodeSet::Unicast(Some(1)),

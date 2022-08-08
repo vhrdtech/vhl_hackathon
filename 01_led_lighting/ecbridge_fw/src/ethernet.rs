@@ -1,3 +1,4 @@
+use core::mem::size_of;
 use core::sync::atomic::Ordering;
 use smoltcp::iface::{
     Interface, InterfaceBuilder, Neighbor, NeighborCache, Route, Routes,
@@ -5,12 +6,13 @@ use smoltcp::iface::{
     SocketHandle,
 };
 use smoltcp::time::Instant;
-use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, Ipv6Cidr};
+use smoltcp::wire::{EthernetAddress, HardwareAddress, IpAddress, IpCidr, IpEndpoint, Ipv6Cidr};
 use smoltcp::socket::{TcpSocket, TcpSocketBuffer};
 use rtt_target::rprintln;
 use stm32h7xx_hal::{ethernet as ethernet_h7, stm32};
 use stm32h7xx_hal::ethernet::PinsRMII;
 use stm32h7xx_hal::rcc::{CoreClocks, rec};
+use serde::{Serialize, Deserialize};
 
 /// Locally administered MAC address
 pub const MAC_ADDRESS: [u8; 6] = [0x02, 0x00, 0x11, 0x22, 0x33, 0x44];
@@ -129,6 +131,44 @@ pub fn init(
     (net, lan8742a)
 }
 
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub struct IpEndpointL {
+    pub addr: IpAddressL,
+    pub port: u16,
+}
+
+impl TryFrom<IpEndpoint> for IpEndpointL {
+    type Error = ();
+
+    fn try_from(value: IpEndpoint) -> Result<Self, Self::Error> {
+        Ok(IpEndpointL {
+            addr: value.addr.try_into()?,
+            port: value.port
+        })
+    }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum IpAddressL {
+    Ipv4([u8; 4]),
+    #[cfg(feature = "proto-ipv6")]
+    Ipv6([u8; 16]),
+}
+
+impl TryFrom<smoltcp::wire::IpAddress> for IpAddressL {
+    type Error = ();
+
+    fn try_from(value: IpAddress) -> Result<Self, Self::Error> {
+        match value {
+            IpAddress::Unspecified => Err(()),
+            IpAddress::Ipv4(v4) => Ok(IpAddressL::Ipv4(v4.0)),
+            #[cfg(feature = "proto-ipv6")]
+            IpAddress::Ipv6(v6) => Ok(IpAddressL::Ipv6(v6.0)),
+            _ => Err(())
+        }
+    }
+}
+
 pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
     unsafe { ethernet_h7::interrupt_handler() }
     ctx.local.led_act.toggle();
@@ -156,6 +196,7 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
             rprintln!("tcp_socket: listen(): {:?}", r);
         }
 
+        let remote_endpoint =  tcp_socket.remote_endpoint();
         if tcp_socket.can_recv() {
             match tcp_socket.recv(|buffer| {
                 // dequeue the amount returned
@@ -163,10 +204,22 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
             }) {
                 Ok(buf) => {
                     // rprintln!("tcp_socket: recv: {} {:02x?}", buf.len(), buf);
-                    match eth_out_prod.grant_exact(buf.len()) {
+                    let endpoint: IpEndpointL = match remote_endpoint.try_into() {
+                        Ok(endpoint) => endpoint,
+                        Err(_) => {
+                            rprintln!("wrong endpoint address");
+                            continue;
+                        }
+                    };
+
+                    // do not remove +1 from IpEndpointL size, because when ipv6 is disabled
+                    // enum have only one variant and is optimized to be 0 size, but
+                    // serializer still use 1 byte for the discriminant
+                    match eth_out_prod.grant_exact(buf.len() + size_of::<IpEndpointL>() + 1) {
                         Ok(mut wgr) => {
-                            wgr.copy_from_slice(buf);
-                            wgr.commit(buf.len());
+                            let endpoint_ser_len = ssmarshal::serialize(&mut wgr, &endpoint).unwrap();
+                            wgr[endpoint_ser_len .. buf.len() + endpoint_ser_len].copy_from_slice(buf);
+                            wgr.commit(buf.len() + endpoint_ser_len);
                             let r = crate::app::link_process::spawn();
                             if r.is_err() {
                                 rprintln!("link_process: spawn failed");
