@@ -37,6 +37,7 @@ mod app {
         /// Maybe possible to generate with a proc_macro!
         /// Even better if possible to add notify_task to it
         symbol: char,
+        digit: u8,
     }
     #[local]
     struct LocalResources {
@@ -168,7 +169,8 @@ mod app {
         rprintln!("All init done");
         (
             SharedResources {
-                symbol: '-'
+                symbol: '-',
+                digit: 0
             },
             LocalResources {
                 net,
@@ -205,9 +207,11 @@ mod app {
     }
 
     /// Must be spawned on Call to /set_digit
-    #[task]
-    fn set_digit(_ctx: set_digit::Context, digit: u8) {
+    #[task(shared = [digit])]
+    fn set_digit(mut ctx: set_digit::Context, digit: u8) {
         rprintln!(=>3, "set_digit task: {}", digit);
+        ctx.shared.digit.lock(|d| *d = digit);
+        display_task::spawn().unwrap();
     }
 
     extern "Rust" {
@@ -218,7 +222,7 @@ mod app {
         #[task(shared = [symbol], local = [eth_out_cons])]
         fn link_process(_: link_process::Context);
 
-        #[task(local = [display])]
+        #[task(local = [display], shared = [symbol, digit])]
         fn display_task(_: display_task::Context);
     }
 }

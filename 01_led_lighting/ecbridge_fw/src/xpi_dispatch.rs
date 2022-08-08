@@ -20,7 +20,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: XpiRequest) {
             if uri == 2 {
                 // Choice A
                 // spawn a task
-                let arg = 123;
+                let arg = 3;
                 let r = crate::app::set_digit::spawn(arg);
                 if r.is_err() {
                     rprintln!(=>2, "spawn_failed");
@@ -36,6 +36,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: XpiRequest) {
         XpiRequestKind::Write { .. } => {
             // Choice A - write into rtic resources
             ctx.shared.symbol.lock(|symbol| *symbol = 'X');
+            crate::app::display_task::spawn().unwrap();
             // Notify someone
         }
         XpiRequestKind::OpenStreams => {}
