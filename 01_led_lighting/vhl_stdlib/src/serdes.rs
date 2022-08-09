@@ -119,7 +119,7 @@ pub struct NibbleBufMut<'a> {
 impl<'a> NibbleBufMut<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
         NibbleBufMut {
-            buf, idx: 0, is_at_byte_boundary: false
+            buf, idx: 0, is_at_byte_boundary: true
         }
     }
 
@@ -155,13 +155,27 @@ impl<'a> NibbleBufMut<'a> {
         }
         let mut val = val;
         let mut msb_found = false;
-        for i in 0..=10 {
+        let nib = (val >> 30) as u8; // get bits 31:30
+        if nib != 0 {
+            // println!("put 31 30");
+            self.put_nibble(nib | 0b1000);
+            msb_found = true;
+        }
+        val <<= 2;
+        for i in 0..=9 {
             if (val & (7 << 29) != 0) || msb_found {
                 let nib = (val >> 29) as u8;
-                self.put_nibble(nib);
+                if i == 9 {
+                    // println!("put last");
+                    self.put_nibble(nib);
+                } else {
+                    // println!("put mid");
+                    self.put_nibble(nib | 0b1000);
+                }
                 msb_found = true;
             }
-            if i == 0 && !msb_found {
+            if i == 9 && !msb_found {
+                // println!("put 0");
                 self.put_nibble(0);
             }
             val <<= 3;
@@ -185,6 +199,7 @@ impl<'a> NibbleBufMut<'a> {
 
 #[cfg(test)]
 mod test {
+    use std::io::Write;
     use crate::serdes::NibbleBufMut;
     use super::NibbleBuf;
 
@@ -279,6 +294,28 @@ mod test {
         let mut wgr = NibbleBufMut::new(&mut buf);
         wgr.put_vlu4_u32(3);
         assert_eq!(wgr.nibbles_pos(), 1);
-        assert_eq!(buf[0], 3);
+        assert_eq!(buf[0], 0b0011_0000);
+    }
+
+    // ≈ 1.5M/s on Core i7 8700K
+    // ≈ 47min to complete on all 32 bit numbers
+    #[test]
+    fn round_trip_vlu4_u32() {
+        let mut buf = [0u8; 11];
+        for i in 0..u32::MAX {
+            {
+                let mut wgr = NibbleBufMut::new(&mut buf);
+                wgr.put_vlu4_u32(i);
+                assert!(!wgr.is_at_end());
+            }
+            if i % 10_000_000 == 0 {
+                println!("{}", i);
+                std::io::stdout().flush().unwrap();
+            }
+            // println!("i = {} buf = {:x?}", i, buf);
+
+            let mut rgr = NibbleBuf::new(&mut buf);
+            assert_eq!(rgr.get_vlu4_u32(), Some(i));
+        }
     }
 }
