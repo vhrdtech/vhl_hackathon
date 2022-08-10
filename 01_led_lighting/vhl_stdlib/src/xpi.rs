@@ -134,8 +134,10 @@ pub struct GlobalTypeIdBound {
 /// subscribers reboot, unless subscribed again.
 #[derive(Copy, Clone, Debug)]
 pub struct XpiRequest<'req> {
+    /// Origin node of the request
+    pub source: NodeId,
     /// Destination node or nodes
-    pub node_set: NodeSet<'req>,
+    pub destination: NodeSet<'req>,
     /// Set of resources that are considered in this request
     pub resource_set: XpiResourceSet<'req>,
     /// What kind of operation is request on a set of resources
@@ -358,7 +360,9 @@ pub enum XpiRequestKind<'req> {
 #[derive(Copy, Clone, Debug)]
 pub struct XpiReply<'rep> {
     /// Source node id that yielded reply
-    pub source_node: NodeId,
+    pub source: NodeId,
+    /// Destination node or nodes
+    pub destination: NodeSet<'rep>,
     /// Kind of reply
     pub kind: XpiRequestKind<'rep>,
     /// Set of resources that are considered in this reply
@@ -473,17 +477,21 @@ pub struct RatesInfo {
     pub maximum_rate: Rate,
 }
 
+pub struct XpiBroadcast<'br> {
+    pub source: NodeId,
+    pub kind: XpiBroadcastKind<'br>
+}
 /// Bidirectional functionality of the Link. Node discovery and heartbeats.
 /// Self node id
 /// No request id is sent or received for XpiMulti
 #[derive(Copy, Clone, Debug)]
-pub enum XpiBroadcast<'mul> {
+pub enum XpiBroadcastKind<'br> {
     /// Broadcast request to all the nodes to announce themselves.
     /// Up to the user how to actually implement this (for example zeroconf or randomly
     /// delayed transmissions on CAN Bus if unique IDs wasn't assigned yet).
     DiscoverNodes,
     /// Sent by nodes in response to [XpiRequest::DiscoverNodes]. Received by everyone else.
-    NodeInfo(NodeInfo<'mul>),
+    NodeInfo(NodeInfo<'br>),
     /// Sent by all nodes periodically, received by all nodes.
     /// Must be sent with maximum lossy priority.
     /// If emergency stop messages exist in a system, heartbeats should be sent with the next lower priority.
