@@ -1,33 +1,16 @@
 // use semver::Version;
-use crate::discrete::{U3, U4, U6, U7Sp1};
-use crate::q_numbers::{UqC};
+use crate::discrete::U7Sp1;
+use crate::q_numbers::UqC;
 use crate::units::UnitStatic;
-use crate::varint::{VarInt, vlu4};
 
 /// Unique node id in the context of the Link
-/// May be absent if the link is point-to-point with only 2 nodes.
-pub type NodeId = Option<u32>;
+pub type NodeId = u32;
 
-/// Resource index / serial
-/// LSB bit of each nibble == 1 means there is another nibble carrying 3 more bits.
-/// Little endian.
-/// Minimum size is 4b => 0..=7
-/// 8b => 0..=63
-/// 12b => 0..=511
-/// 16b => 0..=4095
-pub type UriPart = VarInt<vlu4>;
+/// Resources index (serial numbers)
+pub type UriPart = u32;
 
 /// Sequence of numbers uniquely identifying an xPI resource
 /// If there is a group in the uri with not numerical index - it must be mapped into numbers.
-///
-/// Variable length encoding is used consisting of nibbles. Uri = PartCount followed by Parts.
-/// Smallest size = 4 bits => empty Uri.
-/// 8 bits => up to 8 resources from root == / one of 8
-/// 12 bits => Uri(/ one of 8 / one of 8) or Uri(/one of 64)
-/// 16 bits => Uri(/ one of 8 / one of 64) or Uri(/one of 64 / one of 8) or Uri(/ one of 8 / one of 8 / one of 8)
-/// And so one with 4 bits steps.
-/// 32 bits => 28 bits used for Uri = 7 nibbles each carrying 3 bits => up to 2_097_152 resources addressable.
-/// Most of the realistic use cases will fall into 12 or 16 bits, resulting in a very compact uri
 pub type Uri<'i> = &'i [UriPart];
 
 /// Priority selection: lossy or lossless (to an extent).
@@ -61,7 +44,7 @@ pub enum Priority {
 /// requests of the same kind and map responses.
 /// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
 /// Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
-pub type RequestId = u16;
+pub type RequestId = u32;
 
 /// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
 /// select the level to which UriMask applies.
@@ -190,42 +173,11 @@ pub enum NodeSet<'i> {
 /// [MultiUri] is the only way to select several resources at once within one request.
 #[derive(Copy, Clone, Debug)]
 pub enum XpiResourceSet<'i> {
-    /// One of the alternative addressing modes.
-    /// Selects / one of 16.
-    /// Size required is 4 bits. Same Uri would be 12 bits.
-    Alpha(U4),
-
-    /// One of the alternative addressing modes.
-    /// Selects / one of 16 / one of 16.
-    /// Size required is 8 bits. Same Uri would be 20 bits.
-    Beta(U4, U4),
-
-    /// One of the alternative addressing modes.
-    /// Selects / one of 16 / one of 16 / one of 16.
-    /// Size required is 12 bits. Same Uri would be 28 bits.
-    Gamma(U4, U4, U4),
-
-    /// One of the alternative addressing modes.
-    /// Selects / one of 64 / one of 8 / one of 8.
-    /// Size required is 12 bits. Same Uri would be 20 bits.
-    Delta(U6, U3, U3),
-
-    /// One of the alternative addressing modes.
-    /// Selects / one of 64 / one of 64 / one of 16.
-    /// Size required is 16 bits. Same Uri would be 28 bits.
-    Epsilon(U6, U6, U4),
-
     /// Select any one resource at any depth.
-    /// May use more space than alpha-epsilon modes.
-    /// Size required is variable, most use cases should be in the range of 16-20 bits.
-    /// Minimum size is 4 bits for 0 sized Uri (root / resource) - also the way to select
-    /// root resource (probably never needed).
+    /// Or root resource by providing 0 length Uri (probably never needed).
     Uri(Uri<'i>),
 
     /// Selects any set of resources at any depths at once.
-    /// Use more space than Uri and alpha-epsilon modes but selects a whole set at once.
-    /// Minimum size is 12 bits for one 0 sized Uri and [UriMask::All] - selecting all resources
-    /// at root level ( / * ).
     MultiUri(MultiUri<'i>),
 }
 
