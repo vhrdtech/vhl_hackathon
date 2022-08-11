@@ -23,12 +23,13 @@ pub struct NibbleBuf<'a> {
     // Position in bytes
     idx: usize,
     is_at_byte_boundary: bool,
+    is_past_end: bool,
 }
 
 impl<'a> NibbleBuf<'a> {
     pub fn new(buf: &'a [u8]) -> Self {
         NibbleBuf {
-            buf, idx: 0, is_at_byte_boundary: true
+            buf, idx: 0, is_at_byte_boundary: true, is_past_end: false,
         }
     }
 
@@ -40,8 +41,16 @@ impl<'a> NibbleBuf<'a> {
         }
     }
 
+    pub fn nibbles_left(&self) -> usize {
+        self.buf.len() * 2 - self.nibbles_pos()
+    }
+
     pub fn is_at_end(&self) -> bool {
         self.idx >= self.buf.len()
+    }
+
+    pub fn is_past_end(&self) -> bool {
+        self.is_past_end
     }
 
     // pub fn slice_to(&self, len: usize) -> &'a [u8] {
@@ -58,6 +67,7 @@ impl<'a> NibbleBuf<'a> {
 
     pub fn get_nibble(&mut self) -> u8 {
         if self.is_at_end() {
+            self.is_past_end = true;
             return 0;
         }
         if self.is_at_byte_boundary {
@@ -94,7 +104,8 @@ impl<'a> NibbleBuf<'a> {
     }
 
     pub fn get_u8(&mut self) -> u8 {
-        if self.is_at_end() {
+        if self.nibbles_left() < 2 {
+            self.is_past_end = true;
             return 0;
         }
         if self.is_at_byte_boundary {
@@ -114,12 +125,13 @@ pub struct NibbleBufMut<'a> {
     buf: &'a mut [u8],
     idx: usize,
     is_at_byte_boundary: bool,
+    is_past_end: bool,
 }
 
 impl<'a> NibbleBufMut<'a> {
     pub fn new(buf: &'a mut [u8]) -> Self {
         NibbleBufMut {
-            buf, idx: 0, is_at_byte_boundary: true
+            buf, idx: 0, is_at_byte_boundary: true, is_past_end: false,
         }
     }
 
@@ -131,8 +143,16 @@ impl<'a> NibbleBufMut<'a> {
         }
     }
 
+    pub fn nibbles_left(&self) -> usize {
+        self.buf.len() * 2 - self.nibbles_pos()
+    }
+
     pub fn is_at_end(&self) -> bool {
         self.idx >= self.buf.len()
+    }
+
+    pub fn is_past_end(&self) -> bool {
+        self.is_past_end
     }
 
     pub fn finish(self) -> &'a [u8] {
@@ -141,6 +161,7 @@ impl<'a> NibbleBufMut<'a> {
 
     pub fn put_nibble(&mut self, nib: u8) {
         if self.is_at_end() {
+            self.is_past_end = true;
             return;
         }
         if self.is_at_byte_boundary {
@@ -155,6 +176,7 @@ impl<'a> NibbleBufMut<'a> {
 
     pub fn put_vlu4_u32(&mut self, val: u32) {
         if self.is_at_end() {
+            self.is_past_end = true;
             return;
         }
         let mut val = val;
@@ -187,7 +209,8 @@ impl<'a> NibbleBufMut<'a> {
     }
 
     pub fn put_u8(&mut self, val: u8) {
-        if self.is_at_end() {
+        if self.nibbles_left() < 2 {
+            self.is_past_end = true;
             return;
         }
         if self.is_at_byte_boundary {
@@ -239,16 +262,17 @@ mod test {
         rdr.get_u8();
         assert!(rdr.is_at_end());
         assert_eq!(rdr.get_u8(), 0);
+        assert!(rdr.is_past_end());
     }
 
     #[test]
     fn read_vlu4_u32_single_nibble() {
         let buf = [0b0111_0010, 0b0000_0001];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), Some(7));
-        assert_eq!(rdr.get_vlu4_u32(), Some(2));
-        assert_eq!(rdr.get_vlu4_u32(), Some(0));
-        assert_eq!(rdr.get_vlu4_u32(), Some(1));
+        assert_eq!(rdr.get_vlu4_u32(), 7);
+        assert_eq!(rdr.get_vlu4_u32(), 2);
+        assert_eq!(rdr.get_vlu4_u32(), 0);
+        assert_eq!(rdr.get_vlu4_u32(), 1);
         assert!(rdr.is_at_end());
     }
 
@@ -256,11 +280,11 @@ mod test {
     fn read_vlu4_u32_multi_nibble() {
         let buf = [0b1111_0111, 0b1001_0000, 0b1000_0111];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), Some(63));
+        assert_eq!(rdr.get_vlu4_u32(), 63);
         assert_eq!(rdr.nibbles_pos(), 2);
-        assert_eq!(rdr.get_vlu4_u32(), Some(0b001000));
+        assert_eq!(rdr.get_vlu4_u32(), 0b001000);
         assert_eq!(rdr.nibbles_pos(), 4);
-        assert_eq!(rdr.get_vlu4_u32(), Some(0b111));
+        assert_eq!(rdr.get_vlu4_u32(), 0b111);
         assert!(rdr.is_at_end());
     }
 
@@ -268,7 +292,7 @@ mod test {
     fn read_vlu4_u32_max() {
         let buf = [0b1011_1111, 0xff, 0xff, 0xff, 0xff, 0x70];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), Some(u32::MAX));
+        assert_eq!(rdr.get_vlu4_u32(), u32::MAX);
         assert_eq!(rdr.get_nibble(), 0);
         assert!(rdr.is_at_end());
     }
@@ -278,7 +302,7 @@ mod test {
         // ignore bit 33
         let buf = [0b1111_1111, 0xff, 0xff, 0xff, 0xff, 0x70];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), Some(u32::MAX));
+        assert_eq!(rdr.get_vlu4_u32(), u32::MAX);
         assert_eq!(rdr.get_nibble(), 0);
         assert!(rdr.is_at_end());
     }
@@ -288,8 +312,25 @@ mod test {
         // ignore bit 33
         let buf = [0xff, 0xff, 0xff, 0xff, 0xff, 0xf0];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), None);
+        assert_eq!(rdr.get_vlu4_u32(), 0);
         assert!(rdr.is_at_end());
+    }
+
+    #[test]
+    fn write_nibbles() {
+        let mut buf = [0u8; 2];
+        {
+            let mut wgr = NibbleBufMut::new(&mut buf);
+            wgr.put_nibble(1);
+            wgr.put_nibble(2);
+            wgr.put_nibble(3);
+            wgr.put_nibble(4);
+            assert!(wgr.is_at_end());
+            wgr.put_nibble(0);
+            assert!(wgr.is_past_end());
+        }
+        assert_eq!(buf[0] , 0x12);
+        assert_eq!(buf[1] , 0x34);
     }
 
     #[test]
