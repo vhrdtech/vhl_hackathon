@@ -17,7 +17,10 @@
 //     fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error>;
 // }
 
+use core::fmt::{Debug, Display, Formatter};
+
 /// Buffer reader that treats input as a stream of nibbles
+#[derive(Copy, Clone)]
 pub struct NibbleBuf<'a> {
     buf: &'a [u8],
     // Position in bytes
@@ -61,6 +64,20 @@ impl<'a> NibbleBuf<'a> {
     /// Return true of there was one or more read attempts after reaching an end of the buffer.
     pub fn is_past_end(&self) -> bool {
         self.is_past_end
+    }
+
+    /// Put this reader into error state, so that it can be detected later
+    /// Used in MultiUriIter,
+    pub fn fuse(&mut self) {
+        self.idx = self.buf.len();
+        self.is_at_byte_boundary = true;
+        self.is_past_end = true;
+    }
+
+    /// Return the rest of the input buffer after vlu4_u32 number
+    pub fn lookahead_vlu4_u32(mut rdr: NibbleBuf) -> NibbleBuf {
+        while rdr.get_nibble() & 0b1000 != 0 {}
+        rdr
     }
 
     // pub fn slice_to(&self, len: usize) -> &'a [u8] {
