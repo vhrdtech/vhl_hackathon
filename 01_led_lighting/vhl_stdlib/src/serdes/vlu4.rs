@@ -12,36 +12,34 @@ pub trait DeserializeVlu4 {
 /// Variable length array of u32 numbers based on vlu4 encoding without allocations.
 #[derive(Copy, Clone, Debug)]
 pub struct Vlu4U32Array<'i> {
-    buf: &'i [u8],
+    rdr: NibbleBuf<'i>,
     // number of vlu4 encoded numbers inside
     len: usize,
-    // number of nibbles taken by len == data start position
-    offset: usize,
 }
 
 impl<'i> Vlu4U32Array<'i> {
-    pub fn new(buf: &'i [u8]) -> Option<Self> {
-        let mut rgr = NibbleBuf::new(buf);
-        let len = rgr.get_vlu4_u32();
-        if rgr.is_past_end() {
-            None
-        } else {
-            Some(Vlu4U32Array {
-                buf, len: len as usize, offset: rgr.nibbles_pos()
-            })
-        }
+    pub fn new(mut rdr: NibbleBuf<'i>) -> Self {
+        let len = rdr.get_vlu4_u32() as usize;
+        Vlu4U32Array { rdr, len }
     }
 
     pub fn iter(&self) -> Vlu4U32ArrayIter<'i> {
-        let rgr = NibbleBuf::new_with_offset(self.buf, self.offset);
         Vlu4U32ArrayIter {
-            array: self.clone(),
-            rgr
+            array: self.clone(), pos: 0
         }
     }
 
     pub fn len(&self) -> usize {
         self.len
+    }
+
+    /// Skip all elements of this array without reading them and return the rest of the input buffer
+    pub fn lookahead(&self) -> NibbleBuf<'i> {
+        let mut rdr = self.rdr.clone();
+        for _ in 0..self.len {
+            rdr = NibbleBuf::lookahead_vlu4_u32(rdr);
+        }
+        rdr
     }
 }
 
@@ -56,17 +54,18 @@ impl<'i> IntoIterator for Vlu4U32Array<'i> {
 
 pub struct Vlu4U32ArrayIter<'i> {
     array: Vlu4U32Array<'i>,
-    rgr: NibbleBuf<'i>,
+    pos: usize,
 }
 
 impl<'i> Iterator for Vlu4U32ArrayIter<'i> {
     type Item = u32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.rgr.is_at_end() {
+        if self.pos >= self.array.len {
             None
         } else {
-            Some(self.rgr.get_vlu4_u32())
+            self.pos += 1;
+            Some(self.array.rdr.get_vlu4_u32())
         }
     }
 
@@ -79,12 +78,13 @@ impl<'i> FusedIterator for Vlu4U32ArrayIter<'i> {}
 
 #[cfg(test)]
 mod test {
+    use crate::serdes::NibbleBuf;
     use super::Vlu4U32Array;
 
     #[test]
     fn vlu4_u32_array_iter() {
         let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(&buf).unwrap();
+        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
         assert_eq!(arr.len(), 5);
         let mut iter = arr.into_iter();
         assert_eq!(iter.next(), Some(1));
