@@ -117,7 +117,8 @@ impl<'i> Debug for Uri<'i> {
 #[cfg(test)]
 mod test {
     use alloc::format;
-    use super::{Uri, UriIter};
+    use crate::serdes::NibbleBuf;
+    use super::Uri;
     use crate::serdes::vlu4::Vlu4U32Array;
 
     #[test]
@@ -150,7 +151,7 @@ mod test {
     #[test]
     fn multi_part_uri_iter() {
         let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(&buf).unwrap();
+        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
         let uri = Uri::MultiPart(arr);
         let mut uri_iter = uri.iter();
         assert_eq!(uri_iter.next(), Some(1));
@@ -164,7 +165,7 @@ mod test {
     #[test]
     fn uri_display() {
         let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(&buf).unwrap();
+        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
         let uri = Uri::MultiPart(arr);
         assert_eq!(format!("{}", uri), "/1/2/3/4/5");
     }

@@ -1,9 +1,8 @@
-use core::cmp::Ordering;
-use core::iter::FusedIterator;
 use crate::discrete::U7Sp1;
 use crate::q_numbers::UqC;
 use crate::units::UnitStatic;
-use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::vlu4::{Vlu4U32Array};
+use crate::serdes::xpi_vlu4::multi_uri::MultiUri;
 use crate::serdes::xpi_vlu4::Uri;
 
 /// Unique node id in the context of the Link
@@ -48,76 +47,9 @@ pub enum Priority {
 /// Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
 pub type RequestId = u32;
 
-/// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
-/// select the level to which UriMask applies.
-/// /a
-///     /1
-///     /2
-///     /3
-/// /b
-///     /x
-///     /y
-///     /z
-///         /u
-///         /v
-/// For example at level /a LevelMask::ByBitfield(0b011) selects /a/2 and /a/3
-/// If the same mask were applied at level /b then /b/y and /b/z would be selected.
-#[derive(Copy, Clone, Debug)]
-pub enum UriMask<'i> {
-    /// Allows to choose any subgroup of up to 128 resources
-    /// Resource serial are mapped as Little Endian, so that adding resources to the end do not change previously used masks.
-    ByBitfield8(u8),
-    ByBitfield16(u16),
-    ByBitfield32(u32),
-    ByBitfield64(u64),
-    ByBitfield128(u128),
-    /// Allows to choose one or more resource by their indices
-    ByIndices(Vlu4U32Array<'i>),
-    /// Select all resources
-    All
-}
 
-/// Allows to select any combination of resources in order to perform read/write or stream
-/// operations on them all at once. Operations are performed sequentially in order of the resources
-/// serial numbers, depth first. Responses to read requests or stream published values are arranged
-/// in arbitrary order, that is deemed optimal at a time, all with proper uris attached, so it's possible
-/// to distinguish them. In response to one request, one or many responses may arrive.
-/// Maximum packets sizes, publishing and observing rates, maximum jitter is taken into account when
-/// grouping responses together.
-///
-/// Examples:
-/// (/a, bitfield: 0b110), (/b, bitfield: 0b011) selects /a/2, /a/3, /b/x, /b/y
-/// (/b, bitfield: 0b100) select /b/z/u and /b/z/v
-/// (/b/z, indexes: 1) selects /b/z/v
-#[derive(Copy, Clone, Debug)]
-pub struct MultiUri<'i> {
-    data: &'i [u8],
-    len: usize,
-    pos: usize,
-}
 
-impl<'i> MultiUri<'i> {
-    pub fn new(buf: &'i [u8]) -> MultiUri<'i> {
-        MultiUri {
-            data: buf,
-            len: todo!(),
-            pos: 0,
-        }
-    }
 
-    /// Returns the amount of (Uri, UriMask) pairs
-    pub fn len(&self) -> usize {
-        self.len
-    }
-}
-
-impl<'i> Iterator for MultiUri<'i> {
-    type Item = (Uri<'i>, UriMask<'i>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
 
 /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
 /// username + project name + file name + module name + identifier

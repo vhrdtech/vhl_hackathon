@@ -98,5 +98,9 @@
 //!     }
 //! }
 pub mod uri;
+pub mod uri_mask;
+pub mod multi_uri;
 
 pub use uri::{Uri, UriIter};
+pub use uri_mask::{UriMask, UriMaskIter};
+// pub use multi_uri::
