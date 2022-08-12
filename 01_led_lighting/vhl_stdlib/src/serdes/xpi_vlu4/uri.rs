@@ -1,9 +1,10 @@
+use core::fmt::{Debug, Display, Formatter};
 use core::iter::FusedIterator;
 use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
 
 /// Sequence of numbers uniquely identifying one of the resources.
 /// If there is a group in the uri with not numerical index - it must be mapped into numbers.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub enum Uri<'i> {
     /// Points to one of the root resources /i
     OnePart(u8),
@@ -93,10 +94,31 @@ impl<'i> Iterator for UriIter<'i> {
 
 impl<'i> FusedIterator for UriIter<'i> {}
 
+impl<'i> Display for Uri<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        let mut uri_iter = self.iter().peekable();
+        write!(f, "Uri(/")?;
+        while let Some(uri_part) = uri_iter.next() {
+            write!(f, "{}", uri_part)?;
+            if uri_iter.peek().is_some() {
+                write!(f, "/");
+            }
+        }
+        write!(f, ")")
+    }
+}
+
+impl<'i> Debug for Uri<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::xpi::Vlu4U32Array;
+    use alloc::format;
     use super::{Uri, UriIter};
+    use crate::serdes::vlu4::Vlu4U32Array;
 
     #[test]
     fn one_part_uri_iter() {
@@ -137,5 +159,13 @@ mod test {
         assert_eq!(uri_iter.next(), Some(4));
         assert_eq!(uri_iter.next(), Some(5));
         assert_eq!(uri_iter.next(), None);
+    }
+
+    #[test]
+    fn uri_display() {
+        let buf = [0x51, 0x23, 0x45];
+        let arr = Vlu4U32Array::new(&buf).unwrap();
+        let uri = Uri::MultiPart(arr);
+        assert_eq!(format!("{}", uri), "/1/2/3/4/5");
     }
 }
