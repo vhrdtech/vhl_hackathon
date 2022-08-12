@@ -4,7 +4,7 @@ pub mod q_numbers;
 pub mod units;
 pub mod discrete;
 pub mod varint;
-pub mod nibble_buf;
+pub mod serdes;
 
 #[cfg(test)]
 mod tests {

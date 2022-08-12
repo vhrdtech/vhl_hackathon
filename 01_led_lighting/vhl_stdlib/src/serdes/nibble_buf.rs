@@ -33,6 +33,15 @@ impl<'a> NibbleBuf<'a> {
         }
     }
 
+    pub fn new_with_offset(buf: &'a [u8], offset_nibbles: usize) -> Self {
+        NibbleBuf {
+            buf,
+            idx: offset_nibbles / 2,
+            is_at_byte_boundary: offset_nibbles % 2 == 0,
+            is_past_end: offset_nibbles > buf.len() * 2
+        }
+    }
+
     pub fn nibbles_pos(&self) -> usize {
         if self.is_at_byte_boundary {
             self.idx * 2
@@ -49,6 +58,7 @@ impl<'a> NibbleBuf<'a> {
         self.idx >= self.buf.len()
     }
 
+    /// Return true of there was one or more read attempts after reaching an end of the buffer.
     pub fn is_past_end(&self) -> bool {
         self.is_past_end
     }

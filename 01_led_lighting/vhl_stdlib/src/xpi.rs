@@ -1,7 +1,10 @@
-// use semver::Version;
+use core::cmp::Ordering;
+use core::iter::FusedIterator;
 use crate::discrete::U7Sp1;
 use crate::q_numbers::UqC;
 use crate::units::UnitStatic;
+use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::xpi_vlu4::Uri;
 
 /// Unique node id in the context of the Link
 pub type NodeId = u32;
@@ -9,9 +12,8 @@ pub type NodeId = u32;
 /// Resources index (serial numbers)
 pub type UriPart = u32;
 
-/// Sequence of numbers uniquely identifying an xPI resource
-/// If there is a group in the uri with not numerical index - it must be mapped into numbers.
-pub type Uri<'i> = &'i [UriPart];
+
+
 
 /// Priority selection: lossy or lossless (to an extent).
 /// Truly lossless mode is not achievable, for example if connection is physically lost mid-transfer,
@@ -70,7 +72,7 @@ pub enum UriMask<'i> {
     ByBitfield64(u64),
     ByBitfield128(u128),
     /// Allows to choose one or more resource by their indices
-    ByIndices(&'i [UriPart]),
+    ByIndices(Vlu4U32Array<'i>),
     /// Select all resources
     All
 }
@@ -87,24 +89,67 @@ pub enum UriMask<'i> {
 /// (/a, bitfield: 0b110), (/b, bitfield: 0b011) selects /a/2, /a/3, /b/x, /b/y
 /// (/b, bitfield: 0b100) select /b/z/u and /b/z/v
 /// (/b/z, indexes: 1) selects /b/z/v
-pub type MultiUri<'i> = &'i [(Uri<'i>, UriMask<'i>)];
+#[derive(Copy, Clone, Debug)]
+pub struct MultiUri<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
+}
 
-/// Global type id from the Registry
+impl<'i> MultiUri<'i> {
+    pub fn new(buf: &'i [u8]) -> MultiUri<'i> {
+        MultiUri {
+            data: buf,
+            len: todo!(),
+            pos: 0,
+        }
+    }
+
+    /// Returns the amount of (Uri, UriMask) pairs
+    pub fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<'i> Iterator for MultiUri<'i> {
+    type Item = (Uri<'i>, UriMask<'i>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+/// Globally unique identifier of any type or trait. Created when publishing to Registry from:
+/// username + project name + file name + module name + identifier
 #[derive(Copy, Clone, Debug)]
 pub struct GlobalTypeId {
-    pub id: u32,
+    pub id: u64,
+}
 
+/// Semver requirement
+#[derive(Copy, Clone, Debug)]
+pub struct SemVerReq<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
 }
 
 /// Unique identifier compatibility checker of a type inside the Registry.
 #[derive(Copy, Clone, Debug)]
-pub struct GlobalTypeIdBound {
-    /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
-    /// username + project name + file name + module name + identifier
+pub struct GlobalTypeIdBound<'i> {
+    /// Global type id from the Registry
     pub unique_id: GlobalTypeId,
     /// Which version to choose from
     // pub semver_req: VersionReq, // need to avoid Vec
-    pub semver_req: (),
+    pub semver_req: SemVerReq<'i>,
+}
+
+/// Set of GlobalTypeIdBound
+#[derive(Copy, Clone, Debug)]
+pub struct TraitSet<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
 }
 
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
@@ -156,7 +201,7 @@ pub enum NodeSet<'i> {
         /// For example if 3 traits were provided, then there are /0, /1, /2 resources,
         /// each corresponding to the trait specified, in order.
         /// So e.g. it is possible to call 3 different functions from 3 different traits in one request.
-        traits: &'i [GlobalTypeIdBound],
+        traits: TraitSet<'i>,
     },
     // Broadcast,
 }
@@ -181,6 +226,19 @@ pub enum XpiResourceSet<'i> {
     MultiUri(MultiUri<'i>),
 }
 
+/// Variable size array of u8 slices
+#[derive(Copy, Clone, Debug)]
+pub struct Vlu4SliceArray<'i> {
+    buf: &'i [u8]
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Vlu4RateArray<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
+}
+
 /// Select what to do with one ore more selected resources.
 #[derive(Copy, Clone, Debug)]
 pub enum XpiRequestKind<'req> {
@@ -201,7 +259,7 @@ pub enum XpiRequestKind<'req> {
     Call {
         /// Arguments must be serialized with the chosen [Wire Format](https://github.com/vhrdtech/vhl/blob/master/book/src/wire_formats/wire_formats.md)
         /// Need to get buffer for serializing from user code, which decides how to handle memory
-        args: &'req[ &'req [u8] ],
+        args: Vlu4SliceArray<'req>,
     },
 
     /// Perform f(g(h(... (args) ...))) call on the destination node, saving
@@ -225,7 +283,7 @@ pub enum XpiRequestKind<'req> {
     Write {
         /// Must be exactly the size of non-zero resources selected for writing in order of
         /// increasing serial numbers, depth first.
-        values: &'req[ &'req [u8] ],
+        values: Vlu4SliceArray<'req>,
     },
 
     /// Open one or more streams for read, writes, publishing or subscribing.
@@ -255,7 +313,7 @@ pub enum XpiRequestKind<'req> {
     /// Publishers must avoid emitting changes with higher than requested rates.
     Subscribe {
         /// For each uri there must be a specified [Rate] provided.
-        rates: &'req [Rate],
+        rates: Vlu4RateArray<'req>,
     },
 
     // /// Request a change in properties observing or stream publishing rates.
@@ -334,7 +392,7 @@ pub enum XpiReplyKind<'rep> {
     CallComplete(Result<&'rep [u8], FailReason>),
 
     /// Result of an each read.
-    ReadComplete(Result<&'rep [&'rep [u8]], FailReason>),
+    ReadComplete(Result<Vlu4SliceArray<'rep>, FailReason>),
 
     /// Result of an each read
     WriteComplete(Result<(), FailReason>),
@@ -394,28 +452,28 @@ pub enum ResourceInfo<'i> {
         /// make a borrow first.
         borrowed_by: NodeId,
         /// TODO: Not sure whether multiple stream subscribers is needed, and how to get around Cell in that case
-        subscribers: &'i [NodeId],
+        subscribers: Vlu4U32Array<'i>,
         rates: RatesInfo,
     },
     RwStreamProperty {
-        subscribers: &'i [NodeId],
+        subscribers: Vlu4SliceArray<'i>,
         /// Incoming data rates
         rates_in: RatesInfo,
         /// Outgoing data rates
         rates_out: RatesInfo,
     },
     WoStreamProperty {
-        subscribers: &'i [NodeId],
+        subscribers: Vlu4SliceArray<'i>,
         /// Incoming data rates
         rates_in: RatesInfo,
     },
     RoStreamProperty {
-        subscribers: &'i [NodeId],
+        subscribers: Vlu4SliceArray<'i>,
         /// Outgoing data rates
         rates_out: RatesInfo,
     },
     Array {
-        size: VarInt<vlu4>,
+        size: u32,
     }
 }
 
