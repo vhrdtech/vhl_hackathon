@@ -148,6 +148,29 @@ impl<'a> NibbleBuf<'a> {
     }
 }
 
+impl<'i> Display for NibbleBuf<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "NibbleBuf(")?;
+        let mut buf = self.clone();
+        if buf.nibbles_pos() > 0 {
+            write!(f, "<{}< ", buf.nibbles_pos());
+        }
+        while !buf.is_at_end() {
+            write!(f, "{:01x}", buf.get_nibble())?;
+            if buf.nibbles_left() >= 1 {
+                write!(f, " ")?;
+            }
+        }
+        write!(f, ")")
+    }
+}
+
+impl<'i> Debug for NibbleBuf<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
 pub struct NibbleBufMut<'a> {
     buf: &'a mut [u8],
     idx: usize,
@@ -254,8 +277,9 @@ impl<'a> NibbleBufMut<'a> {
 #[cfg(test)]
 mod test {
     extern crate std;
-    use crate::nibble_buf::NibbleBufMut;
-    use super::NibbleBuf;
+
+    use alloc::format;
+    use super::{NibbleBuf, NibbleBufMut};
 
     #[test]
     fn read_nibbles() {
@@ -389,4 +413,20 @@ mod test {
     //         assert_eq!(rgr.get_vlu4_u32(), Some(i));
     //     }
     // }
+
+    #[test]
+    fn buf_display() {
+        let buf = [0x12, 0x34, 0x56];
+        let buf = NibbleBuf::new(&buf);
+        assert_eq!(format!("{}", buf), "NibbleBuf(1 2 3 4 5 6)")
+    }
+
+    #[test]
+    fn buf_display_partly_consumed() {
+        let buf = [0x12, 0x43, 0x21];
+        let mut buf = NibbleBuf::new(&buf);
+        let _ = buf.get_nibble();
+        let _ = buf.get_nibble();
+        assert_eq!(format!("{}", buf), "NibbleBuf(<2< 4 3 2 1)")
+    }
 }
