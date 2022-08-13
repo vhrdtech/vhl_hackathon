@@ -33,53 +33,54 @@ pub enum UriMask<'i> {
 
 impl<'i> UriMask<'i> {
     pub fn new(mut rdr: NibbleBuf<'i>) -> (Option<Self>, NibbleBuf<'i>) {
-        let mask_kind = rdr.get_nibble();
-        match mask_kind {
-            0 => {
-                (Some(UriMask::ByBitfield8(rdr.get_u8())), rdr)
-            },
-            1 => {
-                let mask = ((rdr.get_u8() as u16) << 8) | rdr.get_u8() as u16;
-                (Some(UriMask::ByBitfield16(mask)), rdr)
-            },
-            2 => {
-                let mask = ((rdr.get_u8() as u32) << 24) |
-                    ((rdr.get_u8() as u32) << 16) |
-                    ((rdr.get_u8() as u32) << 8) |
-                    rdr.get_u8() as u32;
-
-                (Some(UriMask::ByBitfield32(mask)), rdr)
-            },
-            3 => {
-                // u64
-                rdr.fuse();
-                (None, rdr)
-            },
-            4 => {
-                // u128
-                rdr.fuse();
-                (None, rdr)
-            },
-            5 => {
-                let indices = Vlu4U32Array::new(rdr);
-                rdr = indices.lookahead();
-                (Some(UriMask::ByIndices(indices)), rdr)
-            },
-            6 => {
-                let amount = rdr.get_vlu4_u32();
-                (Some(UriMask::All(amount)), rdr)
-            },
-            7 => {
-                // reserved
-                rdr.fuse();
-                (None, rdr)
-            },
-            _ => {
-                // should be unreachable
-                rdr.fuse();
-                (None, rdr)
-            }
-        }
+        todo!()
+        // let mask_kind = rdr.get_nibble();
+        // match mask_kind {
+        //     0 => {
+        //         (Some(UriMask::ByBitfield8(rdr.get_u8())), rdr)
+        //     },
+        //     1 => {
+        //         let mask = ((rdr.get_u8() as u16) << 8) | rdr.get_u8() as u16;
+        //         (Some(UriMask::ByBitfield16(mask)), rdr)
+        //     },
+        //     2 => {
+        //         let mask = ((rdr.get_u8() as u32) << 24) |
+        //             ((rdr.get_u8() as u32) << 16) |
+        //             ((rdr.get_u8() as u32) << 8) |
+        //             rdr.get_u8() as u32;
+        //
+        //         (Some(UriMask::ByBitfield32(mask)), rdr)
+        //     },
+        //     3 => {
+        //         // u64
+        //         rdr.fuse();
+        //         (None, rdr)
+        //     },
+        //     4 => {
+        //         // u128
+        //         rdr.fuse();
+        //         (None, rdr)
+        //     },
+        //     5 => {
+        //         let indices = Vlu4U32Array::new(rdr);
+        //         rdr = indices.lookahead();
+        //         (Some(UriMask::ByIndices(indices)), rdr)
+        //     },
+        //     6 => {
+        //         let amount = rdr.get_vlu4_u32();
+        //         (Some(UriMask::All(amount)), rdr)
+        //     },
+        //     7 => {
+        //         // reserved
+        //         rdr.fuse();
+        //         (None, rdr)
+        //     },
+        //     _ => {
+        //         // should be unreachable
+        //         rdr.fuse();
+        //         (None, rdr)
+        //     }
+        // }
     }
 
     pub fn iter(&self) -> UriMaskIter<'i> {

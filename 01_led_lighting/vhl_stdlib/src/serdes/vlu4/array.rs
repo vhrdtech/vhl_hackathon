@@ -1,5 +1,6 @@
 use core::iter::FusedIterator;
 use crate::serdes::{NibbleBuf, };
+use crate::serdes::vlu4::DeserializeVlu4;
 
 /// Variable length array of u32 numbers based on vlu4 encoding without allocations.
 #[derive(Copy, Clone, Debug)]
@@ -24,14 +25,28 @@ impl<'i> Vlu4U32Array<'i> {
     pub fn len(&self) -> usize {
         self.len
     }
+    //
+    // /// Skip all elements of this array without reading them and return the rest of the input buffer
+    // pub fn lookahead(&self) -> NibbleBuf<'i> {
+    //     let mut rdr = self.rdr.clone();
+    //     for _ in 0..self.len {
+    //         rdr = NibbleBuf::lookahead_vlu4_u32(rdr);
+    //     }
+    //     rdr
+    // }
+}
 
-    /// Skip all elements of this array without reading them and return the rest of the input buffer
-    pub fn lookahead(&self) -> NibbleBuf<'i> {
-        let mut rdr = self.rdr.clone();
-        for _ in 0..self.len {
-            rdr = NibbleBuf::lookahead_vlu4_u32(rdr);
+impl<'i> DeserializeVlu4<'i> for Vlu4U32Array<'i> {
+    fn des_vlu4(rdr: & mut NibbleBuf<'i>) -> Vlu4U32Array<'i> {
+        let len = rdr.get_vlu4_u32() as usize;
+        let rdr_before_elements = rdr.clone();
+        for _ in 0..len {
+            rdr.skip_vlu4_u32();
         }
-        rdr
+        Vlu4U32Array {
+            rdr: rdr_before_elements,
+            len
+        }
     }
 }
 
@@ -75,8 +90,14 @@ mod test {
 
     #[test]
     fn vlu4_u32_array_iter() {
-        let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
+        let buf = [0x51, 0x23, 0x45, 0x77];
+        let mut buf = NibbleBuf::new(&buf);
+
+        let arr: Vlu4U32Array = buf.des_vlu4();
+        // use crate::serdes::vlu4::DeserializeVlu4;
+        // let arr = Vlu4U32Array::des_vlu4(&mut buf);
+        assert_eq!(buf.nibbles_pos(), 6);
+
         assert_eq!(arr.len(), 5);
         let mut iter = arr.into_iter();
         assert_eq!(iter.next(), Some(1));

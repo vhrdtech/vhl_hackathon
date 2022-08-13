@@ -1,5 +1,5 @@
 use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::Vlu4U32Array;
+use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array};
 use crate::serdes::xpi_vlu4::{Uri, UriMask};
 
 /// Allows to select any combination of resources in order to perform read/write or stream
@@ -59,27 +59,35 @@ impl<'i> Iterator for MultiUriIter<'i> {
     type Item = (Uri<'i>, UriMask<'i>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.pos >= self.len {
-            return None;
-        }
-        self.pos += 1;
-
-        let uri_arr = Vlu4U32Array::new(self.rdr);
-        let rdr = uri_arr.lookahead();
-        let (mask, rdr_after_mask) = UriMask::new(rdr);
-        let mask = match mask {
-            Some(mask) => mask,
-            None => {
-                self.rdr.fuse();
-                self.pos = self.len;
-                return None;
-            }
-        };
-        self.rdr = rdr_after_mask;
-
-        Some((Uri::MultiPart(uri_arr), mask))
+        todo!()
+        // if self.pos >= self.len {
+        //     return None;
+        // }
+        // self.pos += 1;
+        //
+        // let uri_arr = Vlu4U32Array::new(self.rdr);
+        //
+        // let rdr = uri_arr.lookahead();
+        // let (mask, rdr_after_mask) = UriMask::new(rdr);
+        // let mask = match mask {
+        //     Some(mask) => mask,
+        //     None => {
+        //         self.rdr.fuse();
+        //         self.pos = self.len;
+        //         return None;
+        //     }
+        // };
+        // self.rdr = rdr_after_mask;
+        //
+        // Some((Uri::MultiPart(uri_arr), mask))
     }
 }
+
+// impl<'i> DeserializeVlu4<'i> for MultiUri<'i> {
+//     fn des_vlu4(rdr: &mut NibbleBuf) -> Self {
+//         todo!()
+//     }
+// }
 
 #[cfg(test)]
 mod test {

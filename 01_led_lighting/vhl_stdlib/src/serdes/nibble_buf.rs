@@ -18,25 +18,26 @@
 // }
 
 use core::fmt::{Debug, Display, Formatter};
+use crate::serdes::vlu4::DeserializeVlu4;
 
 /// Buffer reader that treats input as a stream of nibbles
 #[derive(Copy, Clone)]
-pub struct NibbleBuf<'a> {
-    buf: &'a [u8],
+pub struct NibbleBuf<'i> {
+    buf: &'i [u8],
     // Position in bytes
     idx: usize,
     is_at_byte_boundary: bool,
     is_past_end: bool,
 }
 
-impl<'a> NibbleBuf<'a> {
-    pub fn new(buf: &'a [u8]) -> Self {
+impl<'i> NibbleBuf<'i> {
+    pub fn new(buf: &'i [u8]) -> Self {
         NibbleBuf {
             buf, idx: 0, is_at_byte_boundary: true, is_past_end: false,
         }
     }
 
-    pub fn new_with_offset(buf: &'a [u8], offset_nibbles: usize) -> Self {
+    pub fn new_with_offset(buf: &'i [u8], offset_nibbles: usize) -> Self {
         NibbleBuf {
             buf,
             idx: offset_nibbles / 2,
@@ -73,12 +74,12 @@ impl<'a> NibbleBuf<'a> {
         self.is_at_byte_boundary = true;
         self.is_past_end = true;
     }
-
-    /// Return the rest of the input buffer after vlu4_u32 number
-    pub fn lookahead_vlu4_u32(mut rdr: NibbleBuf) -> NibbleBuf {
-        while rdr.get_nibble() & 0b1000 != 0 {}
-        rdr
-    }
+    //
+    // /// Return the rest of the input buffer after vlu4_u32 number
+    // pub fn lookahead_vlu4_u32(mut rdr: NibbleBuf) -> NibbleBuf {
+    //     while rdr.get_nibble() & 0b1000 != 0 {}
+    //     rdr
+    // }
 
     // pub fn slice_to(&self, len: usize) -> &'a [u8] {
     //     unsafe { core::slice::from_raw_parts(self.buf.get_unchecked(self.idx), len) }
@@ -130,6 +131,10 @@ impl<'a> NibbleBuf<'a> {
         num
     }
 
+    pub fn skip_vlu4_u32(&mut self) {
+        while self.get_nibble() & 0b1000 != 0 {}
+    }
+
     pub fn get_u8(&mut self) -> u8 {
         if self.nibbles_left() < 2 {
             self.is_past_end = true;
@@ -145,6 +150,10 @@ impl<'a> NibbleBuf<'a> {
             let lsn = unsafe { *self.buf.get_unchecked(self.idx) };
             (msn << 4) | (lsn >> 4)
         }
+    }
+
+    pub fn des_vlu4<'di, T: DeserializeVlu4<'i>>(&'di mut self) -> T {
+        T::des_vlu4(self)
     }
 }
 
@@ -171,15 +180,15 @@ impl<'i> Debug for NibbleBuf<'i> {
     }
 }
 
-pub struct NibbleBufMut<'a> {
-    buf: &'a mut [u8],
+pub struct NibbleBufMut<'i> {
+    buf: &'i mut [u8],
     idx: usize,
     is_at_byte_boundary: bool,
     is_past_end: bool,
 }
 
-impl<'a> NibbleBufMut<'a> {
-    pub fn new(buf: &'a mut [u8]) -> Self {
+impl<'i> NibbleBufMut<'i> {
+    pub fn new(buf: &'i mut [u8]) -> Self {
         NibbleBufMut {
             buf, idx: 0, is_at_byte_boundary: true, is_past_end: false,
         }
@@ -205,7 +214,7 @@ impl<'a> NibbleBufMut<'a> {
         self.is_past_end
     }
 
-    pub fn finish(self) -> &'a [u8] {
+    pub fn finish(self) -> &'i [u8] {
         &self.buf[0..self.idx]
     }
 
