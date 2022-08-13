@@ -1,0 +1,36 @@
+/// Globally unique identifier of any type or trait. Created when publishing to Registry from:
+/// username + project name + file name + module name + identifier
+#[derive(Copy, Clone, Debug)]
+pub struct GlobalTypeId {
+    pub id: u64,
+}
+
+pub struct SemVer {
+
+}
+
+/// Semver requirement
+#[derive(Copy, Clone, Debug)]
+pub struct SemVerReq<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
+}
+
+/// Unique identifier compatibility checker of a type inside the Registry.
+#[derive(Copy, Clone, Debug)]
+pub struct GlobalTypeIdBound<'i> {
+    /// Global type id from the Registry
+    pub unique_id: GlobalTypeId,
+    /// Which version to choose from
+    // pub semver_req: VersionReq, // need to avoid Vec
+    pub semver_req: SemVerReq<'i>,
+}
+
+/// Set of GlobalTypeIdBound
+#[derive(Copy, Clone, Debug)]
+pub struct TraitSet<'i> {
+    data: &'i [u8],
+    len: usize,
+    pos: usize,
+}

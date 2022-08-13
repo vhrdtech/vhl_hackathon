@@ -1,14 +1,6 @@
 use core::iter::FusedIterator;
 use crate::serdes::{NibbleBuf, NibbleBufMut};
 
-pub trait SerializeVlu4 {
-    fn ser_vlu4(&self, wgr: &mut NibbleBufMut);
-}
-
-pub trait DeserializeVlu4 {
-    fn des_vlu4(rdr: &mut NibbleBuf) -> Self;
-}
-
 /// Variable length array of u32 numbers based on vlu4 encoding without allocations.
 #[derive(Copy, Clone, Debug)]
 pub struct Vlu4U32Array<'i> {

@@ -1,10 +1,18 @@
-//! no_std, no alloc, zero copy, space efficient implementation of xPI requests and replies based
+//! no_std, no alloc, zero copy, space efficient implementation of xPI based
 //! on variable length encoding and buffer with 4 bits elements.
 //!
 //! Nibble (4 bits) level access to buffers are used to save substantial amount of space for
-//! lower bandwidth channels (for example CAN Bus). With the tricks employed, it is for example
+//! lower bandwidth channels (for example CAN Bus).
+//!
+//! First 4 bytes of serialized data structures are directly mappable to 29bit CAN ID and uses
+//! layout very similar to UAVCAN (now Cyphal). This optimization saves additional space.
+//! It is also possible to use different underlying interface, just treating serialized data as one
+//! buffer.
+//!
+//! With the tricks employed, it is for example
 //! possible to encode up to 4 function call requests into 6 bytes, leaving one byte free and one
 //! byte for transport layer.
+//!
 //!
 //! One request or reply takes 3+ nibbles depending on the Uri length and resource tree
 //! organization.
@@ -100,7 +108,10 @@
 pub mod uri;
 pub mod uri_mask;
 pub mod multi_uri;
+pub mod request;
+pub mod addressing;
 
 pub use uri::{Uri, UriIter};
 pub use uri_mask::{UriMask, UriMaskIter};
+pub use addressing::NodeId;
 // pub use multi_uri::
