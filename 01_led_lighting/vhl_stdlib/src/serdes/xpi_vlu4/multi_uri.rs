@@ -65,7 +65,7 @@ impl<'i> Iterator for MultiUriIter<'i> {
         self.pos += 1;
 
         let uri_arr = Vlu4U32Array::new(self.rdr);
-        let mut rdr = uri_arr.lookahead();
+        let rdr = uri_arr.lookahead();
         let (mask, rdr_after_mask) = UriMask::new(rdr);
         let mask = match mask {
             Some(mask) => mask,

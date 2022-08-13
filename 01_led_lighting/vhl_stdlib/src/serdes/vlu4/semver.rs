@@ -5,6 +5,7 @@ pub struct GlobalTypeId {
     pub id: u64,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct SemVer {
 
 }
@@ -12,9 +13,9 @@ pub struct SemVer {
 /// Semver requirement
 #[derive(Copy, Clone, Debug)]
 pub struct SemVerReq<'i> {
-    data: &'i [u8],
-    len: usize,
-    pos: usize,
+    pub data: &'i [u8],
+    pub len: usize,
+    pub pos: usize,
 }
 
 /// Unique identifier compatibility checker of a type inside the Registry.
@@ -30,7 +31,7 @@ pub struct GlobalTypeIdBound<'i> {
 /// Set of GlobalTypeIdBound
 #[derive(Copy, Clone, Debug)]
 pub struct TraitSet<'i> {
-    data: &'i [u8],
-    len: usize,
-    pos: usize,
+    pub data: &'i [u8],
+    pub len: usize,
+    pub pos: usize,
 }

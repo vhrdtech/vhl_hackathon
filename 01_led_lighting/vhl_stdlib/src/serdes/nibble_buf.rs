@@ -153,7 +153,7 @@ impl<'i> Display for NibbleBuf<'i> {
         write!(f, "NibbleBuf(")?;
         let mut buf = self.clone();
         if buf.nibbles_pos() > 0 {
-            write!(f, "<{}< ", buf.nibbles_pos());
+            write!(f, "<{}< ", buf.nibbles_pos())?;
         }
         while !buf.is_at_end() {
             write!(f, "{:01x}", buf.get_nibble())?;

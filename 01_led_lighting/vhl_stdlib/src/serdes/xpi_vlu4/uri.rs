@@ -101,7 +101,7 @@ impl<'i> Display for Uri<'i> {
         while let Some(uri_part) = uri_iter.next() {
             write!(f, "{}", uri_part)?;
             if uri_iter.peek().is_some() {
-                write!(f, "/");
+                write!(f, "/")?;
             }
         }
         write!(f, ")")

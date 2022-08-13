@@ -1,3 +1,9 @@
+use crate::serdes::vlu4::Vlu4SliceArray;
+use crate::serdes::xpi_vlu4::addressing::{NodeSet, RequestId, XpiResourceSet};
+use crate::serdes::xpi_vlu4::error::FailReason;
+use crate::serdes::xpi_vlu4::NodeId;
+use crate::serdes::xpi_vlu4::request::XpiRequestKind;
+use crate::serdes::xpi_vlu4::resource_info::ResourceInfo;
 
 /// Replies are sent to the Link in response to requests.
 /// One request can result in one or more replies.

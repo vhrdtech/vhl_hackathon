@@ -1,3 +1,7 @@
+use crate::serdes::vlu4::{Vlu4SliceArray, Vlu4U32Array};
+use crate::serdes::xpi_vlu4::NodeId;
+use crate::serdes::xpi_vlu4::rate::Rate;
+
 #[derive(Copy, Clone, Debug)]
 pub enum ResourceInfo<'i> {
     FreeResource,

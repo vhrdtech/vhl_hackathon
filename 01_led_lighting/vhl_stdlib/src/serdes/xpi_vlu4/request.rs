@@ -1,3 +1,7 @@
+use crate::serdes::vlu4::Vlu4SliceArray;
+use crate::serdes::xpi_vlu4::addressing::{NodeSet, RequestId, XpiResourceSet};
+use crate::serdes::xpi_vlu4::priority::Priority;
+use crate::serdes::xpi_vlu4::rate::Vlu4RateArray;
 use super::NodeId;
 
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.

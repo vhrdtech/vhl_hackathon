@@ -1,5 +1,5 @@
 use core::iter::FusedIterator;
-use crate::serdes::{NibbleBuf, NibbleBufMut};
+use crate::serdes::{NibbleBuf, };
 
 /// Variable length array of u32 numbers based on vlu4 encoding without allocations.
 #[derive(Copy, Clone, Debug)]

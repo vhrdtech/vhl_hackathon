@@ -1,9 +1,11 @@
-use hash32_derive::Hash32;
+// use hash32_derive::Hash32;
 use core::fmt::{Display, Formatter, Result as FmtResult};
+use crate::serdes::vlu4::TraitSet;
+use crate::serdes::xpi_vlu4::{Uri, MultiUri};
 
 macro_rules! max_bound_number {
     ($type_name: ident, $base_type: ty, $max: literal, $fmt: literal) => {
-        #[derive(Copy, Clone, Eq, PartialEq, Debug, Hash32)]
+        #[derive(Copy, Clone, Eq, PartialEq, Debug)]
         pub struct $type_name($base_type);
         impl $type_name {
             pub const fn new(x: $base_type) -> Option<$type_name> {
@@ -37,10 +39,10 @@ macro_rules! max_bound_number {
 
 max_bound_number!(NodeId, u8, 127, "N:{}");
 
-/// Each outgoing request must be marked with an increasing number in order to distinguish
-/// requests of the same kind and map responses.
-/// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
-/// Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
+// Each outgoing request must be marked with an increasing number in order to distinguish
+// requests of the same kind and map responses.
+// Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
+// Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
 max_bound_number!(RequestId, u8, 31, "Req:{}");
 
 

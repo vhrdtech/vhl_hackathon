@@ -110,8 +110,16 @@ pub mod uri_mask;
 pub mod multi_uri;
 pub mod request;
 pub mod addressing;
+pub mod reply;
+pub mod resource_info;
+pub mod node_info;
+pub mod broadcast;
+pub mod rate;
+pub mod priority;
+pub mod error;
 
 pub use uri::{Uri, UriIter};
+pub use multi_uri::{MultiUri, MultiUriIter};
 pub use uri_mask::{UriMask, UriMaskIter};
 pub use addressing::NodeId;
 // pub use multi_uri::

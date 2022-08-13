@@ -1,8 +1,11 @@
+use crate::q_numbers::UqC;
+use crate::units::UnitStatic;
+
 #[derive(Copy, Clone, Debug)]
 pub struct Vlu4RateArray<'i> {
-    data: &'i [u8],
-    len: usize,
-    pos: usize,
+    pub data: &'i [u8],
+    pub len: usize,
+    pub pos: usize,
 }
 
 

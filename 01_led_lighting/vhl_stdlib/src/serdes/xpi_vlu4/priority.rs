@@ -1,3 +1,5 @@
+use crate::discrete::U7Sp1;
+
 /// Priority selection: lossy or lossless (to an extent).
 /// Truly lossless mode is not achievable, for example if connection is physically lost mid-transfer,
 /// or memory is exceeded.
