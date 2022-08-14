@@ -18,7 +18,7 @@
 // }
 
 use core::fmt::{Debug, Display, Formatter};
-use crate::serdes::nibble_buf::Error::{MalformedVlu4U32, OutOfBounds};
+use crate::serdes::nibble_buf::Error::{MalformedVlu4U32, OutOfBounds, UnalignedAccess};
 use crate::serdes::vlu4::DeserializeVlu4;
 
 /// Buffer reader that treats input as a stream of nibbles
@@ -35,7 +35,7 @@ pub struct NibbleBuf<'i> {
 pub enum Error {
     OutOfBounds,
     MalformedVlu4U32,
-
+    UnalignedAccess,
 }
 
 impl<'i> NibbleBuf<'i> {
@@ -159,6 +159,18 @@ impl<'i> NibbleBuf<'i> {
             let lsn = unsafe { *self.buf.get_unchecked(self.idx) };
             Ok((msn << 4) | (lsn >> 4))
         }
+    }
+
+    pub fn get_slice(&mut self, len: usize) -> Result<&'i [u8], Error> {
+        if !self.is_at_byte_boundary {
+            return Err(UnalignedAccess);
+        }
+        if self.nibbles_left() < len * 2 {
+            return Err(OutOfBounds);
+        }
+        let slice = &self.buf[self.idx .. self.idx + len];
+        self.idx += len;
+        Ok(slice)
     }
 
     pub fn des_vlu4<'di, T: DeserializeVlu4<'i>>(&'di mut self) -> Result<T, T::Error> {
