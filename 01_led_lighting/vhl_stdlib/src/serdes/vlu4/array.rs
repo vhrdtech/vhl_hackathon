@@ -11,10 +11,10 @@ pub struct Vlu4U32Array<'i> {
 }
 
 impl<'i> Vlu4U32Array<'i> {
-    pub fn new(mut rdr: NibbleBuf<'i>) -> Self {
-        let len = rdr.get_vlu4_u32() as usize;
-        Vlu4U32Array { rdr, len }
-    }
+    // pub fn new(mut rdr: NibbleBuf<'i>) -> Self {
+    //     let len = rdr.get_vlu4_u32() as usize;
+    //     Vlu4U32Array { rdr, len }
+    // }
 
     pub fn iter(&self) -> Vlu4U32ArrayIter<'i> {
         Vlu4U32ArrayIter {
@@ -37,16 +37,18 @@ impl<'i> Vlu4U32Array<'i> {
 }
 
 impl<'i> DeserializeVlu4<'i> for Vlu4U32Array<'i> {
-    fn des_vlu4(rdr: & mut NibbleBuf<'i>) -> Vlu4U32Array<'i> {
-        let len = rdr.get_vlu4_u32() as usize;
+    type Error = crate::serdes::nibble_buf::Error;
+
+    fn des_vlu4(rdr: & mut NibbleBuf<'i>) -> Result<Vlu4U32Array<'i>, Self::Error> {
+        let len = rdr.get_vlu4_u32()? as usize;
         let rdr_before_elements = rdr.clone();
         for _ in 0..len {
-            rdr.skip_vlu4_u32();
+            rdr.skip_vlu4_u32()?;
         }
-        Vlu4U32Array {
+        Ok(Vlu4U32Array {
             rdr: rdr_before_elements,
             len
-        }
+        })
     }
 }
 
@@ -72,7 +74,7 @@ impl<'i> Iterator for Vlu4U32ArrayIter<'i> {
             None
         } else {
             self.pos += 1;
-            Some(self.array.rdr.get_vlu4_u32())
+            self.array.rdr.get_vlu4_u32().ok()
         }
     }
 
@@ -93,7 +95,7 @@ mod test {
         let buf = [0x51, 0x23, 0x45, 0x77];
         let mut buf = NibbleBuf::new(&buf);
 
-        let arr: Vlu4U32Array = buf.des_vlu4();
+        let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         // use crate::serdes::vlu4::DeserializeVlu4;
         // let arr = Vlu4U32Array::des_vlu4(&mut buf);
         assert_eq!(buf.nibbles_pos(), 6);
