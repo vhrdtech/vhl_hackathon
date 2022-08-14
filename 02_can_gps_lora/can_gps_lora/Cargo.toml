@@ -14,3 +14,4 @@ heapless = "0.5"
 
 embedded-graphics = "0.7.1"
 ssd1306 = "^0.7.0"
+sx127x_lora = { version = "0.3.1", git = "https://github.com/romixlab/sx127x_lora.git" }

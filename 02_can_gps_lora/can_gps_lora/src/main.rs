@@ -17,7 +17,12 @@ use ssd1306::prelude::{DisplayRotation, DisplaySize128x64};
 use stm32l4xx_hal::{i2c, pac::{self, LPUART1}, prelude::*, serial::{self, Config, Serial}};
 use stm32l4xx_hal::delay::Delay;
 use stm32l4xx_hal::gpio::{Floating, H8, Input, L8, Output, Pin, PushPull};
+use stm32l4xx_hal::hal::blocking::delay::DelayMs;
 use stm32l4xx_hal::i2c::I2c;
+use stm32l4xx_hal::spi::Spi;
+use sx127x_lora::MODE;
+
+pub const SYSCLK: u32 = 64_000_000;
 
 #[rtic::app(device = stm32l4xx_hal::pac)]
 const APP: () = {
@@ -42,11 +47,13 @@ const APP: () = {
 
         let p = pac::Peripherals::take().unwrap();
 
+
         let mut rcc = p.RCC.constrain();
         let mut flash = p.FLASH.constrain();
         let mut pwr = p.PWR.constrain(&mut rcc.apb1r1);
 
-        let clocks = rcc.cfgr.sysclk(64.MHz()).freeze(&mut flash.acr, &mut pwr);
+        let clocks = rcc.cfgr.sysclk(SYSCLK.Hz()).freeze(&mut flash.acr, &mut pwr);
+        // let mut delay = Delay::new(cp.SYST, clocks);
 
         let mut gpioa = p.GPIOA.split(&mut rcc.ahb2);
         let mut gpiob = p.GPIOB.split(&mut rcc.ahb2);
@@ -82,6 +89,42 @@ const APP: () = {
             &mut rcc.apb1r2,
         );
         serial.listen(serial::Event::Rxne);
+
+        let sck = gpiob
+            .pb3
+            .into_alternate(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
+        let miso = gpiob
+            .pb4
+            .into_alternate(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
+        let mosi = gpiob
+            .pb5
+            .into_alternate(&mut gpiob.moder, &mut gpiob.otyper, &mut gpiob.afrl);
+        let mut spi = Spi::spi1(
+            p.SPI1,
+            (sck, miso, mosi),
+            MODE,
+             1.MHz(),
+            // 100.kHz(),
+            clocks,
+            &mut rcc.apb2,
+        );
+        let rfmod_cs = gpioa.pa8.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+        let rfmod_rst = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+
+        let mut delay = FakeDelay{};
+        let lora = sx127x_lora::LoRa::new(spi, rfmod_cs, rfmod_rst, 868_i64, &mut delay);
+        let mut lora = match lora {
+            Ok(l) => {
+                rprintln!("LoRa init ok");
+                l
+            },
+            Err(e) => {
+                loop {
+                    rprintln!("Lora error: {:?}", e);
+                    cortex_m::asm::delay(10_000);
+                }
+            }
+        };
 
         let mut scl =
             gpiob
@@ -128,10 +171,10 @@ const APP: () = {
 
         // let mut delay = Delay::new(cp.SYST, clocks);
         // delay.delay_ms(1000u32);
-        delay(80_000_000);
-        on_off.set_high();
-        delay(1_000_000);
-        on_off.set_low();
+        // delay(80_000_000);
+        // on_off.set_high();
+        // delay(1_000_000);
+        // on_off.set_low();
 
         rprintln!("done.");
 
@@ -193,3 +236,10 @@ const APP: () = {
         // }
     }
 };
+
+pub struct FakeDelay {}
+impl DelayMs<u8> for FakeDelay {
+    fn delay_ms(&mut self, ms: u8) {
+        delay(ms as u32 * (SYSCLK / 1_000))
+    }
+}
