@@ -1,23 +1,5 @@
-// pub trait MessageSpec {
-//     const ID: u8;
-//     const SIZE: usize;
-// }
-//
-// pub trait Serialize {
-//     type Error;
-//
-//     fn ser(&self, buf: &mut BufMut) -> Result<(), Self::Error>;
-//     fn size_hint(&self) -> usize;
-// }
-//
-// pub trait Deserialize {
-//     type Output;
-//     type Error;
-//
-//     fn des(buf: &mut Buf) -> Result<Self::Output, Self::Error>;
-// }
-
 use core::fmt::{Debug, Display, Formatter};
+use thiserror::Error;
 use crate::serdes::nibble_buf::Error::{MalformedVlu4U32, OutOfBounds, UnalignedAccess};
 use crate::serdes::vlu4::DeserializeVlu4;
 
@@ -31,10 +13,13 @@ pub struct NibbleBuf<'i> {
     is_past_end: bool,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[derive(Error, Debug)]
 pub enum Error {
+    #[error("Out of bounds access")]
     OutOfBounds,
+    #[error("Wrong vlu4 number")]
     MalformedVlu4U32,
+    #[error("Unaligned access for slice")]
     UnalignedAccess,
 }
 

@@ -1,3 +1,6 @@
+use thiserror::Error;
+use crate::serdes::nibble_buf;
+
 #[derive(Copy, Clone, Debug)]
 pub enum FailReason {
     /// No response was received in time
@@ -21,4 +24,17 @@ pub enum FailReason {
     StreamIsAlreadyClosed,
     /// When trying to write into a const or ro property, write into stream_out or read from stream_in.
     OperationNotSupported,
+}
+
+#[derive(Error, Debug)]
+pub enum XpiVlu4Error {
+    #[error("Nibble buf reader error")]
+    NibbleBuf(#[from] nibble_buf::Error),
+    #[error("Unreachable reached")]
+    InternalError,
+    #[error("Reserved uri mask type")]
+    UriMaskReserved,
+    #[error("Unsupported uri mask type")]
+    UriMaskUnsupportedType,
+
 }
