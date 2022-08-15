@@ -1,6 +1,8 @@
 #![no_main]
 #![no_std]
 
+mod radio;
+
 extern crate panic_rtt_target;
 
 use cfg_if::cfg_if;
@@ -16,7 +18,7 @@ use rtt_target::{rprint, rprintln};
 use ssd1306::{I2CDisplayInterface, Ssd1306};
 use ssd1306::mode::DisplayConfig;
 use ssd1306::prelude::{DisplayRotation, DisplaySize128x64};
-use ssd1331::DisplayRotation::Rotate0;
+use ssd1331::DisplayRotation::{Rotate0, Rotate180};
 use stm32l4xx_hal::{i2c, pac::{self, LPUART1}, prelude::*, serial::{self, Config, Serial}};
 use stm32l4xx_hal::delay::Delay;
 use stm32l4xx_hal::gpio::{Floating, H8, Input, L8, Output, Pin, PushPull};
@@ -25,6 +27,7 @@ use stm32l4xx_hal::i2c::I2c;
 use stm32l4xx_hal::spi::Spi;
 use sx127x_lora::MODE;
 use tinybmp::Bmp;
+use crate::radio::{FrameType, RadioFrame, HeartBeat};
 
 pub const SYSCLK: u32 = 64_000_000;
 
@@ -36,7 +39,6 @@ const APP: () = {
 
         pps_input: Pin<Input<Floating>, H8, 'B', 14>,
 
-        led1: Pin<Output<PushPull>, L8, 'B', 2>,
         //
         // rx_prod: spsc::Producer<'static, u8, U8>,
         // rx_cons: spsc::Consumer<'static, u8, U8>,
@@ -82,8 +84,8 @@ const APP: () = {
 
         let pps_input = gpiob.pb14.into_floating_input(&mut gpiob.moder, &mut gpiob.pupdr);
 
-        let led1 = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
-        let led2 = gpioa.pa10.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+        let mut led_red = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
+        let mut led_green = gpioa.pa10.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
 
 
         let mut serial = Serial::lpuart1(
@@ -117,7 +119,7 @@ const APP: () = {
         let rfmod_rst = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
 
         let mut delay = FakeDelay{};
-        let lora = sx127x_lora::LoRa::new(spi, rfmod_cs, rfmod_rst, 868_i64, &mut delay);
+        let lora = sx127x_lora::LoRa::new(spi, rfmod_cs, rfmod_rst, 915_i64, &mut delay);
         let mut lora = match lora {
             Ok(l) => {
                 rprintln!("LoRa init ok");
@@ -130,6 +132,8 @@ const APP: () = {
                 }
             }
         };
+        let r = lora.set_tx_power(17,1); //Using PA_BOOST. See your board for correct pin.
+        rprintln!("set_tx_power: {:?}", r);
 
         cfg_if! {
             if #[cfg(feature = "oled_bw_ssd1306")] {
@@ -194,9 +198,10 @@ const APP: () = {
                 oled_reset.set_high();
                 let oled_dc = gpioc.pc9.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
 
-                let mut display = ssd1331::Ssd1331::new(spi3, oled_dc, Rotate0);
+                let mut display = ssd1331::Ssd1331::new(spi3, oled_dc, Rotate180);
                 display.init().unwrap();
-                // display.flush().unwrap();
+                display.clear();
+                display.flush().unwrap();
 
                 let (w, h) = display.dimensions();
 
@@ -232,24 +237,108 @@ const APP: () = {
 
         rprintln!("done.");
 
+        let mut buf = [0u8; 255];
+        let mut hb = HeartBeat {
+            uptime: 0,
+            remote_rssi: 0
+        };
+
+        loop {
+            cfg_if! {
+                if #[cfg(feature = "oled_bw_ssd1306")] {
+                    let poll = lora.poll_irq(Some(100), &mut delay);
+                    match poll {
+                        Ok(size) => {
+                            match lora.read_packet(&mut buf) { // Received buffer. NOTE: 255 bytes are always returned
+                                Ok(packet) => {
+                                    rprintln!("LoRa packet:");
+                                    led_green.toggle();
+                                    // for b in packet {
+                                    //     rprint!("{:02x} ", *b);
+                                    // }
+                                    let frame = RadioFrame::deserialize(packet);
+
+                                    match frame {
+                                        Ok(frame) => {
+                                            match frame.frame_type {
+                                                // FrameType::CANBusForward(can_frame) => {
+                                                //     rprintln!("Forwarding: {:?}", can_frame);
+                                                //     can.transmit(&Frame::new_data(
+                                                //         vhrdcanid2bxcanid(can_frame.id),
+                                                //         Data::new(can_frame.data()).unwrap(),
+                                                //     )).ok();
+                                                // }
+                                                FrameType::HeartBeat(hb) => {
+                                                    rprintln!("RSSI: {} Heartbeat: {:?}", lora.get_packet_rssi().unwrap_or(-777), hb);
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            rprintln!("Deser err: {:?}", e);
+                                            led_red.toggle();
+                                        }
+                                    }
+                                },
+                                Err(_) => {}
+                            }
+                        },
+                        Err(_) => { rprintln!("LoRa rx timeout"); led_red.toggle(); }
+                    }
+                }
+            }
+
+            cfg_if! {
+                if #[cfg(feature = "oled_color_ssd1331")] {
+                    loop {
+                        hb.remote_rssi = lora.get_packet_rssi().unwrap_or(-777);
+                        hb.uptime += 1;
+
+                        let frame = RadioFrame::new(10, 110, FrameType::HeartBeat(hb));
+                        match frame.serialize(&mut buf) {
+                            Ok(buf) => {
+                                match lora.transmit_payload(buf) {
+                                    Ok(_) => {
+                                        while lora.transmitting().unwrap_or(false) {
+                                            cortex_m::asm::delay(1000);
+                                        }
+                                        rprintln!("Sent LoRa packet");
+                                        led_green.toggle();
+
+                                    },
+                                    Err(e) => {
+                                        rprintln!("LoRa TX err: {:?}", e),
+                                        led_red.toggle();
+                                    }
+                                }
+                            },
+                            Err(e) => {
+                                rprintln!("Ser error: {:?}", e);
+                                led_red.toggle();
+                            }
+                        }
+                        delay.delay_ms(100_u8);
+                    }
+                }
+            }
+        }
+
         init::LateResources {
             rx,
             tx,
 
             pps_input,
-            led1,
             //
             // rx_prod,
             // rx_cons,
         }
     }
 
-    #[idle(resources = [tx, pps_input, led1, ])]
+    #[idle(resources = [tx, pps_input,  ])]
     fn idle(cx: idle::Context) -> ! {
         // let rx = cx.resources.rx_cons;
         let tx = cx.resources.tx;
         let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.resources.pps_input;
-        let led1: &mut Pin<Output<PushPull>, L8, 'B', 2> = cx.resources.led1;
+        // let led1: &mut Pin<Output<PushPull>, L8, 'B', 2> = cx.resources.led1;
 
         loop {
             // if let Some(b) = rx.dequeue() {
@@ -258,12 +347,12 @@ const APP: () = {
             // }
             // block!(tx.write('x' as u8)).unwrap();
             cortex_m::asm::delay(1_000_000);
-
-            if pps_input.is_high() {
-                led1.set_high();
-            } else {
-                led1.set_low();
-            }
+            //
+            // if pps_input.is_high() {
+            //     led1.set_high();
+            // } else {
+            //     led1.set_low();
+            // }
         }
     }
 

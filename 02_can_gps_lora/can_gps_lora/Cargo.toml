@@ -19,6 +19,14 @@ ssd1331 = "^0.3.0"
 tinybmp = "0.3.1"
 sx127x_lora = { version = "0.3.1", git = "https://github.com/romixlab/sx127x_lora.git" }
 
+postcard = "0.7.0"
+crc-any = { version = "2.3.12", default-features = false }
+
+[dependencies.serde]
+version = "1.0.100"
+features = ["derive"]
+default-features = false
+
 [features]
 oled_bw_ssd1306 = []
 oled_color_ssd1331 = []
