@@ -171,7 +171,7 @@ mod test {
     #[test]
     fn test_mask_array() {
         let buf = [0b0010_1111, 0b0111_0001];
-        let mut buf = NibbleBuf::new(&buf);
+        let mut buf = NibbleBuf::new_all(&buf);
         let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let mask = UriMask::ByIndices(arr);
         let mut mask_iter = mask.iter();

@@ -93,7 +93,7 @@ mod test {
     #[test]
     fn vlu4_u32_array_iter() {
         let buf = [0x51, 0x23, 0x45, 0x77];
-        let mut buf = NibbleBuf::new(&buf);
+        let mut buf = NibbleBuf::new_all(&buf);
 
         let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         // use crate::serdes::vlu4::DeserializeVlu4;

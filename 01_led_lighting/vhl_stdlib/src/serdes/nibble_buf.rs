@@ -7,6 +7,7 @@ use crate::serdes::vlu4::DeserializeVlu4;
 #[derive(Copy, Clone)]
 pub struct NibbleBuf<'i> {
     buf: &'i [u8],
+    len_nibbles: usize,
     // Position in bytes
     idx: usize,
     is_at_byte_boundary: bool,
@@ -23,9 +24,19 @@ pub enum Error {
 }
 
 impl<'i> NibbleBuf<'i> {
-    pub fn new(buf: &'i [u8]) -> Self {
+    pub fn new(buf: &'i [u8], len_nibbles: usize) -> Result<Self, Error> {
+        if len_nibbles > buf.len() * 2 {
+            Err(Error::OutOfBounds)
+        } else {
+            Ok(NibbleBuf {
+                buf, len_nibbles, idx: 0, is_at_byte_boundary: true,
+            })
+        }
+    }
+
+    pub fn new_all(buf: &'i [u8]) -> Self {
         NibbleBuf {
-            buf, idx: 0, is_at_byte_boundary: true
+            buf, len_nibbles: buf.len() * 2, idx: 0, is_at_byte_boundary: true
         }
     }
 
@@ -52,11 +63,15 @@ impl<'i> NibbleBuf<'i> {
     }
 
     pub fn nibbles_left(&self) -> usize {
-        self.buf.len() * 2 - self.nibbles_pos()
+        if !self.is_at_end() {
+            self.len_nibbles - self.nibbles_pos()
+        } else {
+            0
+        }
     }
 
     pub fn is_at_end(&self) -> bool {
-        self.idx >= self.buf.len()
+        self.nibbles_pos() >= self.len_nibbles
     }
 
     pub fn is_at_byte_boundary(&self) -> bool {
@@ -275,7 +290,7 @@ mod test {
     #[test]
     fn read_nibbles() {
         let buf = [0xab, 0xcd, 0xef];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_nibble(), Ok(0xa));
         assert_eq!(rdr.get_nibble(), Ok(0xb));
         assert_eq!(rdr.get_nibble(), Ok(0xc));
@@ -286,9 +301,17 @@ mod test {
     }
 
     #[test]
+    fn out_of_bounds() {
+        let buf = [0xa0];
+        let mut rdr = NibbleBuf::new(&buf, 1).unwrap();
+        assert_eq!(rdr.get_nibble(), Ok(0xa));
+        assert_eq!(rdr.get_nibble(), Err(Error::OutOfBounds));
+    }
+
+    #[test]
     fn read_u8() {
         let buf = [0x12, 0x34, 0x56];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_nibble(), Ok(0x1));
         assert_eq!(rdr.get_u8(), Ok(0x23));
         assert_eq!(rdr.get_nibble(), Ok(0x4));
@@ -299,7 +322,7 @@ mod test {
     #[test]
     fn read_past_end() {
         let buf = [0xaa, 0xbb, 0xcc];
-        let mut rdr = NibbleBuf::new(&buf[0..=1]);
+        let mut rdr = NibbleBuf::new_all(&buf[0..=1]);
         rdr.get_u8().unwrap();
         rdr.get_u8().unwrap();
         assert!(rdr.is_at_end());
@@ -309,7 +332,7 @@ mod test {
     #[test]
     fn read_vlu4_u32_single_nibble() {
         let buf = [0b0111_0010, 0b0000_0001];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_vlu4_u32(), Ok(7));
         assert_eq!(rdr.get_vlu4_u32(), Ok(2));
         assert_eq!(rdr.get_vlu4_u32(), Ok(0));
@@ -320,7 +343,7 @@ mod test {
     #[test]
     fn read_vlu4_u32_multi_nibble() {
         let buf = [0b1111_0111, 0b1001_0000, 0b1000_0111];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_vlu4_u32(), Ok(63));
         assert_eq!(rdr.nibbles_pos(), 2);
         assert_eq!(rdr.get_vlu4_u32(), Ok(0b001000));
@@ -332,7 +355,7 @@ mod test {
     #[test]
     fn read_vlu4_u32_max() {
         let buf = [0b1011_1111, 0xff, 0xff, 0xff, 0xff, 0x70];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_vlu4_u32(), Ok(u32::MAX));
         assert_eq!(rdr.get_nibble(), Ok(0));
         assert!(rdr.is_at_end());
@@ -342,7 +365,7 @@ mod test {
     fn read_vlu4_u32_max_plus1() {
         // ignore bit 33
         let buf = [0b1111_1111, 0xff, 0xff, 0xff, 0xff, 0x70];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_vlu4_u32(), Ok(u32::MAX));
         assert_eq!(rdr.get_nibble(), Ok(0));
         assert!(rdr.is_at_end());
@@ -352,7 +375,7 @@ mod test {
     fn read_vlu4_u32_max_plus_nibble() {
         // more nibbles than expected for u32
         let buf = [0xff, 0xff, 0xff, 0xff, 0xff, 0xf0];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         assert_eq!(rdr.get_vlu4_u32(), Err(Error::MalformedVlu4U32));
         assert!(rdr.is_at_end());
     }
@@ -407,14 +430,14 @@ mod test {
     #[test]
     fn buf_display() {
         let buf = [0x12, 0x34, 0x56];
-        let buf = NibbleBuf::new(&buf);
+        let buf = NibbleBuf::new_all(&buf);
         assert_eq!(format!("{}", buf), "NibbleBuf(1 2 3 4 5 6)")
     }
 
     #[test]
     fn buf_display_partly_consumed() {
         let buf = [0x12, 0x43, 0x21];
-        let mut buf = NibbleBuf::new(&buf);
+        let mut buf = NibbleBuf::new_all(&buf);
         let _ = buf.get_nibble();
         let _ = buf.get_nibble();
         assert_eq!(format!("{}", buf), "NibbleBuf(<2< 4 3 2 1)")

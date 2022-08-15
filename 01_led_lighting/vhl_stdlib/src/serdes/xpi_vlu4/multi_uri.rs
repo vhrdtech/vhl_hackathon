@@ -81,7 +81,7 @@ mod test {
     #[test]
     fn one_pair_mask_u16() {
         let buf = [0x13, 0x12, 0x31, 0xab, 0xcd];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
@@ -99,7 +99,7 @@ mod test {
     #[test]
     fn one_pair_mask_indices() {
         let buf = [0x12, 0x12, 0x52, 0x35];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
@@ -122,7 +122,7 @@ mod test {
     #[test]
     fn two_pairs_mask_all() {
         let buf = [0x22, 0x12, 0x63, 0x25, 0x66, 0x70];
-        let mut rdr = NibbleBuf::new(&buf);
+        let mut rdr = NibbleBuf::new_all(&buf);
         let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
 

@@ -95,7 +95,7 @@ mod test {
     #[test]
     fn aligned_start() {
         let input_buf = hex!("32 ab cd 30 ef ed cb 20 ab cd /* slices end */ 11 22");
-        let mut buf = NibbleBuf::new(&input_buf);
+        let mut buf = NibbleBuf::new_all(&input_buf);
 
         let slices: Vlu4SliceArray = buf.des_vlu4().unwrap();
         let mut iter = slices.iter();
@@ -110,7 +110,7 @@ mod test {
     #[test]
     fn unaligned_start() {
         let input_buf = hex!("12 20 ab cd 20 ef fe 11");
-        let mut buf = NibbleBuf::new(&input_buf);
+        let mut buf = NibbleBuf::new_all(&input_buf);
 
         assert_eq!(buf.get_nibble(), Ok(1));
 

@@ -161,7 +161,7 @@ mod test {
     #[test]
     fn multi_part_uri_iter() {
         let buf = [0x51, 0x23, 0x45];
-        let mut buf = NibbleBuf::new(&buf);
+        let mut buf = NibbleBuf::new_all(&buf);
         let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let uri = Uri::MultiPart(arr);
         let mut uri_iter = uri.iter();
@@ -176,7 +176,7 @@ mod test {
     #[test]
     fn uri_display() {
         let buf = [0x51, 0x23, 0x45];
-        let mut buf = NibbleBuf::new(&buf);
+        let mut buf = NibbleBuf::new_all(&buf);
         let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let uri = Uri::MultiPart(arr);
         assert_eq!(format!("{}", uri), "Uri(/1/2/3/4/5)");
