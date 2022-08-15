@@ -10,7 +10,6 @@ pub struct NibbleBuf<'i> {
     // Position in bytes
     idx: usize,
     is_at_byte_boundary: bool,
-    is_past_end: bool,
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]
@@ -26,18 +25,23 @@ pub enum Error {
 impl<'i> NibbleBuf<'i> {
     pub fn new(buf: &'i [u8]) -> Self {
         NibbleBuf {
-            buf, idx: 0, is_at_byte_boundary: true, is_past_end: false,
+            buf, idx: 0, is_at_byte_boundary: true
         }
     }
 
-    pub fn new_with_offset(buf: &'i [u8], offset_nibbles: usize) -> Self {
-        NibbleBuf {
-            buf,
-            idx: offset_nibbles / 2,
-            is_at_byte_boundary: offset_nibbles % 2 == 0,
-            is_past_end: offset_nibbles > buf.len() * 2
-        }
-    }
+    // pub fn new_with_offset(buf: &'i [u8], offset_nibbles: usize) -> Result<Self, Error> {
+    //     if offset_nibbles > buf.len() * 2 {
+    //         Err(Error::OutOfBounds)
+    //     } else {
+    //         Ok(
+    //             NibbleBuf {
+    //                 buf,
+    //                 idx: offset_nibbles / 2,
+    //                 is_at_byte_boundary: offset_nibbles % 2 == 0,
+    //             }
+    //         )
+    //     }
+    // }
 
     pub fn nibbles_pos(&self) -> usize {
         if self.is_at_byte_boundary {
@@ -55,40 +59,12 @@ impl<'i> NibbleBuf<'i> {
         self.idx >= self.buf.len()
     }
 
-    /// Return true of there was one or more read attempts after reaching an end of the buffer.
-    pub fn is_past_end(&self) -> bool {
-        self.is_past_end
-    }
-
-    /// Put this reader into error state, so that it can be detected later
-    /// Used in MultiUriIter,
-    pub fn fuse(&mut self) {
-        self.idx = self.buf.len();
-        self.is_at_byte_boundary = true;
-        self.is_past_end = true;
-    }
-    //
-    // /// Return the rest of the input buffer after vlu4_u32 number
-    // pub fn lookahead_vlu4_u32(mut rdr: NibbleBuf) -> NibbleBuf {
-    //     while rdr.get_nibble() & 0b1000 != 0 {}
-    //     rdr
-    // }
-
-    // pub fn slice_to(&self, len: usize) -> &'a [u8] {
-    //     unsafe { core::slice::from_raw_parts(self.buf.get_unchecked(self.idx), len) }
-    // }
-
-    // pub fn advance(&mut self, cnt: usize) {
-    //     self.idx += cnt;
-    // }
-
     pub fn is_at_byte_boundary(&self) -> bool {
         self.is_at_byte_boundary
     }
 
     pub fn get_nibble(&mut self) -> Result<u8, Error> {
         if self.is_at_end() {
-            self.is_past_end = true;
             return Err(OutOfBounds);
         }
         if self.is_at_byte_boundary {
@@ -131,7 +107,6 @@ impl<'i> NibbleBuf<'i> {
 
     pub fn get_u8(&mut self) -> Result<u8, Error> {
         if self.nibbles_left() < 2 {
-            self.is_past_end = true;
             return Err(OutOfBounds);
         }
         if self.is_at_byte_boundary {
@@ -329,7 +304,6 @@ mod test {
         rdr.get_u8().unwrap();
         assert!(rdr.is_at_end());
         assert_eq!(rdr.get_u8(), Err(Error::OutOfBounds));
-        assert!(rdr.is_past_end());
     }
 
     #[test]

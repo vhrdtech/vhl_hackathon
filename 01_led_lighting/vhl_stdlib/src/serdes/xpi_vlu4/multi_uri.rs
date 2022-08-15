@@ -42,12 +42,6 @@ pub struct MultiUriIter<'i> {
     pos: usize,
 }
 
-impl<'i> MultiUriIter<'i> {
-    pub fn is_past_end(&self) -> bool {
-        self.rdr.is_past_end()
-    }
-}
-
 impl<'i> Iterator for MultiUriIter<'i> {
     type Item = (Uri<'i>, UriMask<'i>);
 
@@ -92,7 +86,6 @@ mod test {
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
         assert!(multi_uri_iter.next().is_none());
-        assert!(!multi_uri_iter.is_past_end());
 
         let mut uri_iter = uri.iter();
         assert_eq!(uri_iter.next(), Some(1));
@@ -111,7 +104,6 @@ mod test {
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
         assert!(multi_uri_iter.next().is_none());
-        assert!(!multi_uri_iter.is_past_end());
 
         let mut uri_iter = uri.iter();
         assert_eq!(uri_iter.next(), Some(1));
@@ -137,7 +129,6 @@ mod test {
         let (uri0, mask0) = multi_uri_iter.next().unwrap();
         let (uri1, mask1) = multi_uri_iter.next().unwrap();
         assert!(multi_uri_iter.next().is_none());
-        assert!(!multi_uri_iter.is_past_end());
 
         let mut uri_iter = uri0.iter();
         assert_eq!(uri_iter.next(), Some(1));
