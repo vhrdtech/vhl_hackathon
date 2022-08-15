@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+cfg-if = "^1.0.0"
 nb = "0.1.1"
 cortex-m = "0.7"
 stm32l4xx-hal = { path = "../../../stm32l4xx-hal", features = ["rt", "stm32l476"] }
@@ -14,4 +15,10 @@ heapless = "0.5"
 
 embedded-graphics = "0.7.1"
 ssd1306 = "^0.7.0"
+ssd1331 = "^0.3.0"
+tinybmp = "0.3.1"
 sx127x_lora = { version = "0.3.1", git = "https://github.com/romixlab/sx127x_lora.git" }
+
+[features]
+oled_bw_ssd1306 = []
+oled_color_ssd1331 = []
