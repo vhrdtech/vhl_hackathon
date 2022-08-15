@@ -1,6 +1,8 @@
 use core::fmt::{Debug, Display, Formatter};
 use core::iter::FusedIterator;
-use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::NibbleBuf;
+use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 
 /// Sequence of numbers uniquely identifying one of the resources.
 /// If there is a group in the uri with not numerical index - it must be mapped into numbers.
@@ -44,6 +46,14 @@ impl<'i> Uri<'i> {
                 UriIter::ArrIter(arr.iter())
             }
         }
+    }
+}
+
+impl<'i> DeserializeVlu4<'i> for Uri<'i> {
+    type Error = XpiVlu4Error;
+
+    fn des_vlu4<'di>(rdr: &'di mut NibbleBuf<'i>) -> Result<Self, Self::Error> {
+        Ok(Uri::MultiPart(rdr.des_vlu4()?))
     }
 }
 
@@ -151,7 +161,8 @@ mod test {
     #[test]
     fn multi_part_uri_iter() {
         let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
+        let mut buf = NibbleBuf::new(&buf);
+        let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let uri = Uri::MultiPart(arr);
         let mut uri_iter = uri.iter();
         assert_eq!(uri_iter.next(), Some(1));
@@ -165,8 +176,9 @@ mod test {
     #[test]
     fn uri_display() {
         let buf = [0x51, 0x23, 0x45];
-        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
+        let mut buf = NibbleBuf::new(&buf);
+        let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let uri = Uri::MultiPart(arr);
-        assert_eq!(format!("{}", uri), "/1/2/3/4/5");
+        assert_eq!(format!("{}", uri), "Uri(/1/2/3/4/5)");
     }
 }

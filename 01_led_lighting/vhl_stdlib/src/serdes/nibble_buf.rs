@@ -13,7 +13,7 @@ pub struct NibbleBuf<'i> {
     is_past_end: bool,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Eq, PartialEq)]
 pub enum Error {
     #[error("Out of bounds access")]
     OutOfBounds,
@@ -294,6 +294,7 @@ mod test {
     extern crate std;
 
     use alloc::format;
+    use crate::serdes::nibble_buf::Error;
     use super::{NibbleBuf, NibbleBufMut};
 
     #[test]
@@ -327,7 +328,7 @@ mod test {
         rdr.get_u8().unwrap();
         rdr.get_u8().unwrap();
         assert!(rdr.is_at_end());
-        assert_eq!(rdr.get_u8(), Ok(0));
+        assert_eq!(rdr.get_u8(), Err(Error::OutOfBounds));
         assert!(rdr.is_past_end());
     }
 
@@ -375,10 +376,10 @@ mod test {
 
     #[test]
     fn read_vlu4_u32_max_plus_nibble() {
-        // ignore bit 33
+        // more nibbles than expected for u32
         let buf = [0xff, 0xff, 0xff, 0xff, 0xff, 0xf0];
         let mut rdr = NibbleBuf::new(&buf);
-        assert_eq!(rdr.get_vlu4_u32(), Ok(0));
+        assert_eq!(rdr.get_vlu4_u32(), Err(Error::MalformedVlu4U32));
         assert!(rdr.is_at_end());
     }
 

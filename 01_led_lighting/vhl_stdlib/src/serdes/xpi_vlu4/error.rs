@@ -26,7 +26,7 @@ pub enum FailReason {
     OperationNotSupported,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Eq, PartialEq)]
 pub enum XpiVlu4Error {
     #[error("Nibble buf reader error")]
     NibbleBuf(#[from] nibble_buf::Error),

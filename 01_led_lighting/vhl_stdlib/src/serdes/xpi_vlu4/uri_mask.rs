@@ -1,5 +1,6 @@
 use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 
 /// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
 /// select the level to which UriMask applies.
@@ -32,57 +33,6 @@ pub enum UriMask<'i> {
 }
 
 impl<'i> UriMask<'i> {
-    pub fn new(mut rdr: NibbleBuf<'i>) -> (Option<Self>, NibbleBuf<'i>) {
-        todo!()
-        // let mask_kind = rdr.get_nibble();
-        // match mask_kind {
-        //     0 => {
-        //         (Some(UriMask::ByBitfield8(rdr.get_u8())), rdr)
-        //     },
-        //     1 => {
-        //         let mask = ((rdr.get_u8() as u16) << 8) | rdr.get_u8() as u16;
-        //         (Some(UriMask::ByBitfield16(mask)), rdr)
-        //     },
-        //     2 => {
-        //         let mask = ((rdr.get_u8() as u32) << 24) |
-        //             ((rdr.get_u8() as u32) << 16) |
-        //             ((rdr.get_u8() as u32) << 8) |
-        //             rdr.get_u8() as u32;
-        //
-        //         (Some(UriMask::ByBitfield32(mask)), rdr)
-        //     },
-        //     3 => {
-        //         // u64
-        //         rdr.fuse();
-        //         (None, rdr)
-        //     },
-        //     4 => {
-        //         // u128
-        //         rdr.fuse();
-        //         (None, rdr)
-        //     },
-        //     5 => {
-        //         let indices = Vlu4U32Array::new(rdr);
-        //         rdr = indices.lookahead();
-        //         (Some(UriMask::ByIndices(indices)), rdr)
-        //     },
-        //     6 => {
-        //         let amount = rdr.get_vlu4_u32();
-        //         (Some(UriMask::All(amount)), rdr)
-        //     },
-        //     7 => {
-        //         // reserved
-        //         rdr.fuse();
-        //         (None, rdr)
-        //     },
-        //     _ => {
-        //         // should be unreachable
-        //         rdr.fuse();
-        //         (None, rdr)
-        //     }
-        // }
-    }
-
     pub fn iter(&self) -> UriMaskIter<'i> {
         match *self {
             UriMask::ByBitfield8(mask) => UriMaskIter::ByBitfield8 { mask, pos: 0 },
@@ -90,6 +40,52 @@ impl<'i> UriMask<'i> {
             UriMask::ByBitfield32(mask) => UriMaskIter::ByBitfield32 { mask, pos:0 },
             UriMask::ByIndices(iter) => UriMaskIter::ByIndices { iter: iter.iter() },
             UriMask::All(count) => UriMaskIter::All { count, pos: 0 }
+        }
+    }
+}
+
+impl<'i> DeserializeVlu4<'i> for UriMask<'i> {
+    type Error = XpiVlu4Error;
+
+    fn des_vlu4<'di>(rdr: &'di mut NibbleBuf<'i>) -> Result<Self, Self::Error> {
+        let mask_kind = rdr.get_nibble()?;
+        match mask_kind {
+            0 => {
+                Ok(UriMask::ByBitfield8(rdr.get_u8()?))
+            },
+            1 => {
+                let mask = ((rdr.get_u8()? as u16) << 8) | rdr.get_u8()? as u16;
+                Ok(UriMask::ByBitfield16(mask))
+            },
+            2 => {
+                let mask = ((rdr.get_u8()? as u32) << 24) |
+                    ((rdr.get_u8()? as u32) << 16) |
+                    ((rdr.get_u8()? as u32) << 8) |
+                    rdr.get_u8()? as u32;
+                Ok(UriMask::ByBitfield32(mask))
+            },
+            3 => {
+                // u64
+                Err(XpiVlu4Error::UriMaskUnsupportedType)
+            },
+            4 => {
+                // u128
+                Err(XpiVlu4Error::UriMaskUnsupportedType)
+            },
+            5 => {
+                Ok(UriMask::ByIndices(rdr.des_vlu4()?))
+            },
+            6 => {
+                let amount = rdr.get_vlu4_u32()?;
+                Ok(UriMask::All(amount))
+            },
+            7 => {
+                Err(XpiVlu4Error::UriMaskReserved)
+            },
+            _ => {
+                // unreachable!()
+                Err(XpiVlu4Error::InternalError)
+            }
         }
     }
 }
@@ -175,7 +171,8 @@ mod test {
     #[test]
     fn test_mask_array() {
         let buf = [0b0010_1111, 0b0111_0001];
-        let arr = Vlu4U32Array::new(NibbleBuf::new(&buf));
+        let mut buf = NibbleBuf::new(&buf);
+        let arr: Vlu4U32Array = buf.des_vlu4().unwrap();
         let mask = UriMask::ByIndices(arr);
         let mut mask_iter = mask.iter();
         assert_eq!(mask_iter.next(), Some(63));

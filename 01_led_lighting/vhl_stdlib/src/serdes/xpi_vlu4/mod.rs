@@ -86,25 +86,25 @@
 //! MultiUri(MultiUri<'i>),
 //! }
 //!
-//! impl<'req> SerializeVlu4 for XpiRequest<'req> {
-//!     fn ser_vlu4(&self, wgr: &mut NibbleBufMut) {
-//!         todo!()
-//!     }
-//! }
-//!
-//! impl<'de> DeserializeVlu4 for XpiRequest<'de> {
-//!     fn des_vlu4(rdr: &mut NibbleBuf) -> Self {
-//!
-//!         XpiRequest {
-//!             source: 0,
-//!             destination: (),
-//!             resource_set: (),
-//!             kind: XpiRequestKind::Read,
-//!             request_id: 0,
-//!             priority: ()
-//!         }
-//!     }
-//! }
+// impl<'req> SerializeVlu4 for XpiRequest<'req> {
+//     fn ser_vlu4(&self, wgr: &mut NibbleBufMut) {
+//         todo!()
+//     }
+// }
+//
+// impl<'de> DeserializeVlu4 for XpiRequest<'de> {
+//     fn des_vlu4(rdr: &mut NibbleBuf) -> Self {
+//
+//         XpiRequest {
+//             source: 0,
+//             destination: (),
+//             resource_set: (),
+//             kind: XpiRequestKind::Read,
+//             request_id: 0,
+//             priority: ()
+//         }
+//     }
+// }
 pub mod uri;
 pub mod uri_mask;
 pub mod multi_uri;

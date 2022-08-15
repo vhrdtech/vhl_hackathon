@@ -1,6 +1,7 @@
 use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array};
+use crate::serdes::vlu4::DeserializeVlu4;
 use crate::serdes::xpi_vlu4::{Uri, UriMask};
+use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 
 /// Allows to select any combination of resources in order to perform read/write or stream
 /// operations on them all at once. Operations are performed sequentially in order of the resources
@@ -21,14 +22,6 @@ pub struct MultiUri<'i> {
 }
 
 impl<'i> MultiUri<'i> {
-    pub fn new(mut rdr: NibbleBuf<'i>) -> MultiUri<'i> {
-        let len = rdr.get_vlu4_u32() as usize;
-        MultiUri {
-            rdr,
-            len
-        }
-    }
-
     /// Returns the amount of (Uri, UriMask) pairs
     pub fn len(&self) -> usize {
         self.len
@@ -59,35 +52,31 @@ impl<'i> Iterator for MultiUriIter<'i> {
     type Item = (Uri<'i>, UriMask<'i>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-        // if self.pos >= self.len {
-        //     return None;
-        // }
-        // self.pos += 1;
-        //
-        // let uri_arr = Vlu4U32Array::new(self.rdr);
-        //
-        // let rdr = uri_arr.lookahead();
-        // let (mask, rdr_after_mask) = UriMask::new(rdr);
-        // let mask = match mask {
-        //     Some(mask) => mask,
-        //     None => {
-        //         self.rdr.fuse();
-        //         self.pos = self.len;
-        //         return None;
-        //     }
-        // };
-        // self.rdr = rdr_after_mask;
-        //
-        // Some((Uri::MultiPart(uri_arr), mask))
+        if self.pos >= self.len {
+            return None;
+        }
+        self.pos += 1;
+
+        Some((Uri::MultiPart(self.rdr.des_vlu4().ok()?), self.rdr.des_vlu4().ok()?))
     }
 }
 
-// impl<'i> DeserializeVlu4<'i> for MultiUri<'i> {
-//     fn des_vlu4(rdr: &mut NibbleBuf) -> Self {
-//         todo!()
-//     }
-// }
+impl<'i> DeserializeVlu4<'i> for MultiUri<'i> {
+    type Error = XpiVlu4Error;
+
+    fn des_vlu4<'di>(rdr: &'di mut NibbleBuf<'i>) -> Result<Self, Self::Error> {
+        let len = rdr.get_vlu4_u32()? as usize;
+        let rdr_before_elements = rdr.clone();
+        for _ in 0..len {
+            let _uri_len: Uri = rdr.des_vlu4()?;
+            let _mask: UriMask = rdr.des_vlu4()?;
+        }
+        Ok(MultiUri {
+            rdr: rdr_before_elements,
+            len,
+        })
+    }
+}
 
 #[cfg(test)]
 mod test {
@@ -98,8 +87,8 @@ mod test {
     #[test]
     fn one_pair_mask_u16() {
         let buf = [0x13, 0x12, 0x31, 0xab, 0xcd];
-        let rdr = NibbleBuf::new(&buf);
-        let multi_uri = MultiUri::new(rdr);
+        let mut rdr = NibbleBuf::new(&buf);
+        let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
         assert!(multi_uri_iter.next().is_none());
@@ -117,8 +106,8 @@ mod test {
     #[test]
     fn one_pair_mask_indices() {
         let buf = [0x12, 0x12, 0x52, 0x35];
-        let rdr = NibbleBuf::new(&buf);
-        let multi_uri = MultiUri::new(rdr);
+        let mut rdr = NibbleBuf::new(&buf);
+        let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
         let (uri, mask) = multi_uri_iter.next().unwrap();
         assert!(multi_uri_iter.next().is_none());
@@ -141,8 +130,8 @@ mod test {
     #[test]
     fn two_pairs_mask_all() {
         let buf = [0x22, 0x12, 0x63, 0x25, 0x66, 0x70];
-        let rdr = NibbleBuf::new(&buf);
-        let multi_uri = MultiUri::new(rdr);
+        let mut rdr = NibbleBuf::new(&buf);
+        let multi_uri: MultiUri = rdr.des_vlu4().unwrap();
         let mut multi_uri_iter = multi_uri.iter();
 
         let (uri0, mask0) = multi_uri_iter.next().unwrap();
