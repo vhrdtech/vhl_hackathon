@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::serdes::bit_buf::Error::OutOfBounds;
+use crate::serdes::DeserializeBits;
 
 /// Buffer reader that treats input as a stream of bits
 #[derive(Copy, Clone)]
@@ -43,6 +43,18 @@ impl<'i> BitBuf<'i> {
         }
     }
 
+    pub fn new_with_offset(buf: &'i [u8], offset_bits: usize, len_bits: usize) -> Result<Self, Error> {
+        if (offset_bits + len_bits) > buf.len() * 8 || offset_bits > len_bits {
+            return Err(Error::OutOfBounds);
+        }
+        Ok(BitBuf {
+            buf,
+            len_bits: len_bits + offset_bits,
+            idx: offset_bits / 8,
+            bit_idx: offset_bits % 8,
+        })
+    }
+
     pub fn bit_pos(&self) -> usize {
         self.idx * 8 + self.bit_idx
     }
@@ -73,7 +85,7 @@ impl<'i> BitBuf<'i> {
 
     pub fn get_up_to_8(&mut self, bit_count: usize) -> Result<u8, Error> {
         if self.bits_left() < bit_count {
-            return Err(OutOfBounds);
+            return Err(Error::OutOfBounds);
         }
 
         let left_in_current_byte = 8 - self.bit_idx;
@@ -104,7 +116,7 @@ impl<'i> BitBuf<'i> {
 
     pub fn get_up_to_16(&mut self, bit_count: usize) -> Result<u16, Error> {
         if self.bits_left() < bit_count {
-            return Err(OutOfBounds);
+            return Err(Error::OutOfBounds);
         }
         if bit_count > 8 {
             let bits_hi = self.get_up_to_8(8)? as u16;
@@ -114,11 +126,16 @@ impl<'i> BitBuf<'i> {
             Ok(self.get_up_to_8(bit_count)? as u16)
         }
     }
+
+
+    pub fn des_bits<'di, T: DeserializeBits<'i>>(&'di mut self) -> Result<T, T::Error> {
+        T::des_bits(self)
+    }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::serdes::bit_buf::{BitBuf, Error};
+    use super::{BitBuf, Error};
 
     #[test]
     fn get_up_to_8() {

@@ -1,7 +1,8 @@
 use core::fmt::{Debug, Display, Formatter};
 use thiserror::Error;
+use crate::serdes::BitBuf;
 use crate::serdes::nibble_buf::Error::{MalformedVlu4U32, OutOfBounds, UnalignedAccess};
-use crate::serdes::vlu4::DeserializeVlu4;
+use crate::serdes::DeserializeVlu4;
 
 /// Buffer reader that treats input as a stream of nibbles
 #[derive(Copy, Clone)]
@@ -38,6 +39,33 @@ impl<'i> NibbleBuf<'i> {
         NibbleBuf {
             buf, len_nibbles: buf.len() * 2, idx: 0, is_at_byte_boundary: true
         }
+    }
+
+    pub fn get_bit_buf(&mut self, nibble_count: usize) -> Result<BitBuf<'i>, Error> {
+        if self.nibbles_left() < nibble_count {
+            return Err(OutOfBounds);
+        }
+        let buf_before_consuming = &self.buf[self.idx..];
+        let offset = if self.is_at_byte_boundary {
+            if nibble_count % 2 != 0 {
+                self.is_at_byte_boundary = false;
+            }
+            self.idx += nibble_count / 2;
+            0
+        } else {
+            if nibble_count % 2 != 0 {
+                self.is_at_byte_boundary = true;
+                self.idx += nibble_count / 2 + 1;
+            } else {
+                self.idx += nibble_count / 2;
+            }
+            4
+        };
+        BitBuf::new_with_offset(
+            buf_before_consuming,
+            offset,
+            nibble_count * 4
+        ).map_err(|_| Error::OutOfBounds)
     }
 
     // pub fn new_with_offset(buf: &'i [u8], offset_nibbles: usize) -> Result<Self, Error> {
@@ -441,5 +469,45 @@ mod test {
         let _ = buf.get_nibble();
         let _ = buf.get_nibble();
         assert_eq!(format!("{}", buf), "NibbleBuf(<2< 4 3 2 1)")
+    }
+
+    #[test]
+    fn get_bit_buf() {
+        let buf = [0x12, 0x34, 0x56];
+        let mut rgr = NibbleBuf::new_all(&buf);
+
+        let mut bits_7_0_rgr = rgr.get_bit_buf(2).unwrap();
+        assert_eq!(bits_7_0_rgr.get_up_to_8(4), Ok(0x1));
+        assert_eq!(bits_7_0_rgr.get_up_to_8(4), Ok(0x2));
+        assert!(bits_7_0_rgr.get_bit().is_err());
+
+        assert_eq!(rgr.get_nibble(), Ok(0x3));
+
+        let mut bits_11_0_rgr = rgr.get_bit_buf(3).unwrap();
+        assert!(rgr.is_at_end());
+        assert_eq!(bits_11_0_rgr.get_up_to_8(4), Ok(0x4));
+        assert_eq!(bits_11_0_rgr.get_up_to_16(8), Ok(0x56));
+        assert!(bits_11_0_rgr.get_bit().is_err());
+    }
+
+    #[test]
+    fn get_bit_buf_in_the_middle() {
+        let buf = [0x12, 0x34, 0x56, 0x78];
+        let mut rgr = NibbleBuf::new_all(&buf);
+        let _ = rgr.get_nibble().unwrap();
+        let mut bits_3_0_rgr = rgr.get_bit_buf(1).unwrap();
+        assert_eq!(bits_3_0_rgr.get_up_to_8(4), Ok(0x2));
+        assert!(bits_3_0_rgr.get_bit().is_err());
+
+        let mut bits_3_0_rgr = rgr.get_bit_buf(1).unwrap();
+        assert_eq!(bits_3_0_rgr.get_up_to_8(4), Ok(0x3));
+        assert!(bits_3_0_rgr.get_bit().is_err());
+
+        let mut bits_11_0_rgr = rgr.get_bit_buf(3).unwrap();
+        assert_eq!(bits_11_0_rgr.get_up_to_16(12), Ok(0x456));
+        assert!(bits_11_0_rgr.get_bit().is_err());
+
+        assert_eq!(rgr.get_u8(), Ok(0x78));
+        assert!(rgr.is_at_end());
     }
 }
