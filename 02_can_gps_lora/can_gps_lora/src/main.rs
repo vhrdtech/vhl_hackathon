@@ -5,12 +5,16 @@ mod radio;
 
 extern crate panic_rtt_target;
 
+use core::fmt;
 use cfg_if::cfg_if;
 use cortex_m::asm::delay;
 use embedded_graphics::Drawable;
 use embedded_graphics::geometry::{OriginDimensions, Point};
 use embedded_graphics::image::{Image, ImageRaw};
+use embedded_graphics::mono_font::ascii::FONT_9X18_BOLD;
+use embedded_graphics::mono_font::MonoTextStyle;
 use embedded_graphics::pixelcolor::{BinaryColor, Rgb565};
+use embedded_graphics::text::Text;
 use embedded_graphics::transform::Transform;
 use heapless::{consts::U8, spsc};
 use nb::block;
@@ -222,6 +226,15 @@ const APP: () = {
             }
         }
 
+        let mut buf = [0u8; 32];
+        let mut buf = StrWriter::new(&mut buf);
+        use core::fmt::Write;
+        write!(buf, "N:{}", 123);
+
+        let style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::On);
+        Text::new(buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
+        display.flush().unwrap();
+        rprintln!("str: {}", buf.as_str());
 
 
 
@@ -384,5 +397,36 @@ pub struct FakeDelay {}
 impl DelayMs<u8> for FakeDelay {
     fn delay_ms(&mut self, ms: u8) {
         delay(ms as u32 * (SYSCLK / 1_000))
+    }
+}
+
+pub struct StrWriter<'i> {
+    buf: &'i mut [u8],
+    pos: usize,
+}
+
+impl<'i> StrWriter<'i> {
+    pub fn new(buf: &'i mut [u8]) -> Self {
+        StrWriter {
+            buf, pos: 0
+        }
+    }
+
+    pub fn as_str(&'i self) -> &'i str {
+        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.pos]) }
+    }
+}
+
+impl<'i> fmt::Write for StrWriter<'i> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        rprintln!("write_str: {}", s);
+        let s = s.as_bytes();
+        if self.buf.len() - self.pos < s.len() {
+            return Err(fmt::Error{})
+        }
+        self.buf[self.pos .. self.pos + s.len()].copy_from_slice(s);
+        self.pos += s.len();
+        rprintln!("ok");
+        Ok(())
     }
 }

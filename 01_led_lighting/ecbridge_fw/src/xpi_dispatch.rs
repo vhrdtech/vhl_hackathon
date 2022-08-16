@@ -1,6 +1,6 @@
 use rtt_target::rprintln;
-use vhl_stdlib::xpi::*;
 use rtic::Mutex;
+use vhl_stdlib::serdes::xpi_vlu4::request::{XpiRequest, XpiRequestKind};
 
 pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
 
@@ -12,15 +12,16 @@ pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
 //
 // Also need ability to send XpiReply(-s) back to the link from dispatcher
 pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: XpiRequest) {
-    rprintln!(=>2, "{:?}", req);
+    rprintln!(=>2, "{}", req);
 
     match req.kind {
-        XpiRequestKind::Call { .. } => {
+        XpiRequestKind::Call { args } => {
             let uri = 2;
             if uri == 2 {
                 // Choice A
                 // spawn a task
-                let arg = 3;
+                let slice = args.iter().next().unwrap();
+                let arg = slice[0];
                 let r = crate::app::set_digit::spawn(arg);
                 if r.is_err() {
                     rprintln!(=>2, "spawn_failed");

@@ -1,11 +1,9 @@
 use rtt_target::rprintln;
 
-use vhl_stdlib::xpi::*;
-use vhl_stdlib::discrete::*;
 use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
-use vhl_stdlib::nibble_buf::NibbleBuf;
-use vhl_stdlib::xpi::XpiResourceSet::Uri;
+use vhl_stdlib::serdes::NibbleBuf;
+use vhl_stdlib::serdes::xpi_vlu4::request::XpiRequest;
 
 // ethernet / can irq task -> put data onto bbqueue?
 // protocol processing task: data slices comes in from bbq -> uavcan/webscoket -> packets arrive
@@ -25,18 +23,14 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
 
             rprintln!(=>1, "link_process got: {}B from {:?} {:02x?}", rgr_len, endpoint, buf);
 
-            {
-                let mut rgr = NibbleBuf::new(&buf);
-                rprintln!(=>1, "{} {} {}", rgr.get_nibble(), rgr.get_u8(), rgr.get_vlu4_u32());
-            }
+            let mut rdr = NibbleBuf::new_all(&buf);
 
-            let xpi_request = XpiRequest {
-                source: 172,
-                destination: NodeSet::Unicast(1),
-                resource_set: XpiResourceSet::Uri(&[0]), // /0
-                kind: XpiRequestKind::Call { args: &[ &rgr[1..=2] ] },
-                request_id: 123,
-                priority: Priority::Lossy(U7Sp1::new(1).unwrap())
+            let xpi_request: XpiRequest = match rdr.des_vlu4() {
+                Ok(req) => req,
+                Err(e) => {
+                    rprintln!("{:?}", e);
+                    return;
+                }
             };
 
             xpi_dispatch(&mut ctx, xpi_request);
