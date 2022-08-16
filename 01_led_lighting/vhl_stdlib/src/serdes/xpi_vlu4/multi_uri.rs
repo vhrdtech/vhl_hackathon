@@ -1,3 +1,4 @@
+use core::fmt::{Display, Formatter};
 use crate::serdes::NibbleBuf;
 use crate::serdes::DeserializeVlu4;
 use crate::serdes::xpi_vlu4::{Uri, UriMask};
@@ -69,6 +70,16 @@ impl<'i> DeserializeVlu4<'i> for MultiUri<'i> {
             rdr: rdr_before_elements,
             len,
         })
+    }
+}
+
+impl<'i> Display for MultiUri<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "MultiUri(")?;
+        for (uri, mask) in self.iter() {
+            write!(f, "{} {}", uri, mask)?;
+        }
+        write!(f, ")")
     }
 }
 

@@ -1,3 +1,5 @@
+use core::fmt::{Display, Formatter};
+
 /// Globally unique identifier of any type or trait. Created when publishing to Registry from:
 /// username + project name + file name + module name + identifier
 #[derive(Copy, Clone, Debug)]
@@ -34,4 +36,10 @@ pub struct TraitSet<'i> {
     pub data: &'i [u8],
     pub len: usize,
     pub pos: usize,
+}
+
+impl<'i> Display for TraitSet<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "impl")
+    }
 }

@@ -40,7 +40,7 @@ impl U6 {
 }
 
 /// 7 bit unsigned integer shifted +1 == range 1..=128
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct U7Sp1(u8);
 impl U7Sp1 {
     pub const fn new(from: u8) -> Option<Self> {
@@ -66,7 +66,7 @@ impl<'i> DeserializeBits<'i> for U7Sp1 {
 }
 
 /// 2 bit unsigned integer shifted +1 == range 1..=4
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct U2Sp1(u8);
 impl U2Sp1 {
     pub const fn new(from: u8) -> Option<Self> {

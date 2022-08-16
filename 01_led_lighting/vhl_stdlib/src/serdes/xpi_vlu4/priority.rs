@@ -1,3 +1,4 @@
+use core::fmt::{Display, Formatter};
 use crate::discrete::U2Sp1;
 use crate::serdes::{BitBuf, DeserializeBits};
 use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
@@ -24,7 +25,7 @@ use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 /// If loss occurs in lossless mode, it is flagged as an error.
 ///
 /// Priority may be mapped into fewer levels by the underlying Link? (needed for constrained channels)
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Priority {
     Lossy(U2Sp1), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
     Lossless(U2Sp1),
@@ -39,6 +40,15 @@ impl<'i> DeserializeBits<'i> for Priority {
             Ok(Priority::Lossless(rdr.des_bits()?))
         } else {
             Ok(Priority::Lossy(rdr.des_bits()?))
+        }
+    }
+}
+
+impl Display for Priority {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Priority::Lossy(level) => write!(f, "L{}", level.to_u8()),
+            Priority::Lossless(level) => write!(f, "R{}", level.to_u8()),
         }
     }
 }

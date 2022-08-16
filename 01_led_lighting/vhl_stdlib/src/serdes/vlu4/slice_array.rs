@@ -1,5 +1,5 @@
 use core::fmt::{Debug, Display, Formatter};
-use std::iter::FusedIterator;
+use core::iter::FusedIterator;
 use crate::serdes::NibbleBuf;
 use crate::serdes::DeserializeVlu4;
 
