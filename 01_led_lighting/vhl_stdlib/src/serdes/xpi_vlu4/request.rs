@@ -1,7 +1,13 @@
+use core::fmt::{Display, Formatter};
+use crate::serdes::{BitBuf, NibbleBuf};
+use crate::serdes::{DeserializeVlu4};
+use crate::serdes::vlu4::slice::Vlu4Slice;
 use crate::serdes::vlu4::Vlu4SliceArray;
 use crate::serdes::xpi_vlu4::addressing::{NodeSet, RequestId, XpiResourceSet};
+use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 use crate::serdes::xpi_vlu4::priority::Priority;
 use crate::serdes::xpi_vlu4::rate::Vlu4RateArray;
+use crate::serdes::xpi_vlu4::Uri;
 use super::NodeId;
 
 /// Requests are sent to the Link by the initiator of an exchange, which can be any node on the Link.
@@ -29,6 +35,20 @@ pub struct XpiRequest<'req> {
     pub priority: Priority,
 }
 
+impl<'i> Display for XpiRequest<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "XpiRequest<@{:#} {}> {{ {} -> {}{:#} {:?} }}",
+            self.request_id,
+            self.priority,
+            self.source,
+            self.destination,
+            self.resource_set,
+            self.kind,
+        )
+    }
+}
 
 /// Select what to do with one ore more selected resources.
 #[derive(Copy, Clone, Debug)]
@@ -61,7 +81,7 @@ pub enum XpiRequestKind<'req> {
     /// Do not cover all the weird use cases, so maybe better be replaced with full-blown expression
     /// executor only were applicable and really needed?
     ChainCall {
-        args: &'req [u8],
+        args: Vlu4Slice<'req>,
     },
 
     /// Read one or more resources.
@@ -153,4 +173,197 @@ pub enum XpiRequestKind<'req> {
     /// * const: nothing at the moment
     /// * array of resources: size of the array
     Introspect,
+}
+
+impl<'i> DeserializeVlu4<'i> for XpiRequest<'i> {
+    type Error = XpiVlu4Error;
+
+    fn des_vlu4<'di>(rdr: &'di mut NibbleBuf<'i>) -> Result<Self, Self::Error> {
+        // get first 32 bits as BitBuf
+        let mut bits_rdr = rdr.get_bit_buf(8)?;
+        let _absent_31_29 = bits_rdr.get_up_to_8(3);
+
+        // bits 28:26
+        let priority: Priority = bits_rdr.des_bits()?;
+
+        // bit 25
+        let is_unicast = bits_rdr.get_bit()?;
+        if !is_unicast {
+            return Err(XpiVlu4Error::NotARequest);
+        }
+
+        // bit 24
+        let is_request = bits_rdr.get_bit()?;
+        if !is_request {
+            return Err(XpiVlu4Error::NotARequest);
+        }
+
+        // UAVCAN reserved bit 23, discard if 0
+        let reserved_23 = bits_rdr.get_bit()?;
+        if !reserved_23 {
+            return Err(XpiVlu4Error::ReservedDiscard);
+        }
+
+        // bits 22:21
+        let destination_kind = bits_rdr.get_up_to_8(2)?;
+
+        // bits 20:17
+        let request_kind = bits_rdr.get_up_to_8(4)?;
+
+        // bits 16:14
+        let uri_type = bits_rdr.get_up_to_8(3)?;
+
+        // bits 13:7 and reads from rdr if traits are used
+        let destination = des_destination(destination_kind, &mut bits_rdr, rdr)?;
+
+        // bits 6:0
+        let source: NodeId = bits_rdr.des_bits()?;
+
+        let resource_set = des_resource_set(uri_type, rdr)?;
+        let kind = des_request_kind(request_kind, rdr)?;
+
+        // tail byte should be at byte boundary, if not 4b padding is added
+        if !rdr.is_at_byte_boundary() {
+            let _ = rdr.get_nibble()?;
+        }
+        let request_id: RequestId = rdr.des_vlu4()?;
+
+        Ok(XpiRequest {
+            source,
+            destination,
+            resource_set,
+            kind,
+            request_id,
+            priority
+        })
+    }
+}
+
+fn des_destination<'di, 'i>(
+    destination_kind: u8,
+    bits_rdr: &'di mut BitBuf<'i>,
+    _rdr: &'di mut NibbleBuf<'i>
+) -> Result<NodeSet<'i>, XpiVlu4Error> {
+    match destination_kind {
+        0 => Ok(NodeSet::Unicast(bits_rdr.des_bits()?)),
+        1 => Err(XpiVlu4Error::Unimplemented),
+        2 => Err(XpiVlu4Error::Unimplemented),
+        3 => Err(XpiVlu4Error::ReservedDiscard),
+        _ => Err(XpiVlu4Error::InternalError)
+    }
+}
+
+fn des_resource_set<'di, 'i>(
+    uri_type: u8,
+    rdr: &'di mut NibbleBuf<'i>
+) -> Result<XpiResourceSet<'i>, XpiVlu4Error> {
+    match uri_type {
+        0 => Ok(XpiResourceSet::Uri( Uri::OnePart(rdr.get_nibble()?)) ),
+        1 => Ok(XpiResourceSet::Uri( Uri::TwoPart(
+            rdr.get_nibble()?, rdr.get_nibble()?))
+        ),
+        2 => Ok(XpiResourceSet::Uri( Uri::ThreePart(
+            rdr.get_nibble()?,
+            rdr.get_nibble()?,
+            rdr.get_nibble()?
+        ))),
+        3 => {
+            let mut bits = rdr.get_bit_buf(3)?;
+            Ok(XpiResourceSet::Uri(Uri::ThreePart(
+                bits.get_up_to_8(6)?,
+                bits.get_up_to_8(3)?,
+                bits.get_up_to_8(3)?,
+            )))
+        }
+        4 => {
+            let mut bits = rdr.get_bit_buf(4)?;
+            Ok(XpiResourceSet::Uri(Uri::ThreePart(
+                bits.get_up_to_8(6)?,
+                bits.get_up_to_8(6)?,
+                bits.get_up_to_8(4)?,
+            )))
+        }
+        5 => Ok( XpiResourceSet::Uri(rdr.des_vlu4()?) ),
+        6 => Ok( XpiResourceSet::MultiUri(rdr.des_vlu4()?) ),
+        7 => {
+            Err(XpiVlu4Error::ReservedDiscard)
+        }
+        _ => {
+            Err(XpiVlu4Error::InternalError)
+        }
+    }
+}
+
+fn des_request_kind<'di, 'i>(
+    request_kind: u8,
+    rdr: &'di mut NibbleBuf<'i>
+) -> Result<XpiRequestKind<'i>, XpiVlu4Error> {
+    use XpiRequestKind::*;
+    match request_kind {
+        0 => Ok(Call {
+                args: rdr.des_vlu4()?
+        }),
+        1 => Ok(Read),
+        2 => Ok(Write {
+            values: rdr.des_vlu4()?
+        }),
+        3 => Ok(OpenStreams),
+        4 => Ok(CloseStreams),
+        5 => Ok(Subscribe {
+            rates: rdr.des_vlu4()?
+        }),
+        6 => Ok(Unsubscribe),
+        7 => Ok(Borrow),
+        8 => Ok(Release),
+        9 => Ok(Introspect),
+        10 => Ok(ChainCall {
+            args: rdr.des_vlu4()?
+        }),
+        11..=15 => Err(XpiVlu4Error::ReservedDiscard),
+        _ => Err(XpiVlu4Error::InternalError)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    extern crate std;
+    use std::println;
+
+    use crate::discrete::U2Sp1;
+    use crate::serdes::NibbleBuf;
+    use crate::serdes::xpi_vlu4::addressing::{NodeSet, RequestId, XpiResourceSet};
+    use crate::serdes::xpi_vlu4::{NodeId, Uri};
+    use crate::serdes::xpi_vlu4::priority::Priority;
+    use crate::serdes::xpi_vlu4::request::{XpiRequest, XpiRequestKind};
+
+    #[test]
+    fn call_request() {
+        let buf = [
+            0b000_100_11, 0b1_00_00000, 0b001_101010, 0b1_0101010,
+            0b0011_1100, 0b0001_0010, 0xaa, 0xbb, 0b000_11011
+        ];
+        let mut rdr = NibbleBuf::new_all(&buf);
+        let req: XpiRequest = rdr.des_vlu4().unwrap();
+        println!("{}", req);
+        assert_eq!(req.priority, Priority::Lossless(U2Sp1::new(1).unwrap()));
+        assert_eq!(req.request_id, RequestId::new(27).unwrap());
+        assert_eq!(req.source, NodeId::new(42).unwrap());
+        assert!(matches!(req.destination, NodeSet::Unicast(_)));
+        if let NodeSet::Unicast(id) = req.destination {
+            assert_eq!(id, NodeId::new(85).unwrap());
+        }
+        assert!(matches!(req.resource_set, XpiResourceSet::Uri(_)));
+        if let XpiResourceSet::Uri(uri) = req.resource_set {
+            assert!(matches!(uri, Uri::TwoPart(3, 12)));
+        }
+        assert!(matches!(req.kind, XpiRequestKind::Call { .. }));
+        if let XpiRequestKind::Call { args } = req.kind {
+            assert_eq!(args.len(), 1);
+            let slice = args.iter().next().unwrap();
+            assert_eq!(slice.len(), 2);
+            assert_eq!(slice[0], 0xaa);
+            assert_eq!(slice[1], 0xbb);
+        }
+        assert!(rdr.is_at_end());
+    }
 }
