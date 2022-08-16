@@ -1,4 +1,4 @@
-use thiserror::Error;
+// use thiserror::Error;
 use crate::serdes::DeserializeBits;
 
 /// Buffer reader that treats input as a stream of bits
@@ -13,11 +13,11 @@ pub struct BitBuf<'i> {
     bit_idx: usize,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
-    #[error("Out of bounds access")]
+    // #[error("Out of bounds access")]
     OutOfBounds,
-    #[error("Unaligned access for slice")]
+    // #[error("Unaligned access for slice")]
     UnalignedAccess,
 }
 

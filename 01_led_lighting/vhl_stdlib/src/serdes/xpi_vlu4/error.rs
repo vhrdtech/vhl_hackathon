@@ -1,5 +1,5 @@
-use thiserror::Error;
-use crate::serdes::nibble_buf;
+// use thiserror::Error;
+use crate::serdes::{nibble_buf, bit_buf};
 
 #[derive(Copy, Clone, Debug)]
 pub enum FailReason {
@@ -26,15 +26,36 @@ pub enum FailReason {
     OperationNotSupported,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum XpiVlu4Error {
-    #[error("Nibble buf reader error")]
-    NibbleBuf(#[from] nibble_buf::Error),
-    #[error("Unreachable reached")]
+    // #[error("Nibble buf reader error")]
+    NibbleBuf(nibble_buf::Error),
+    // #[error("Bit buf reader error")]
+    BitBuf(bit_buf::Error),
+    // #[error("Unreachable reached")]
     InternalError,
-    #[error("Reserved uri mask type")]
+    // #[error("Reserved uri mask type")]
     UriMaskReserved,
-    #[error("Unsupported uri mask type")]
+    // #[error("Unsupported uri mask type")]
     UriMaskUnsupportedType,
 
+    // #[error("Expected request")]
+    NotARequest,
+    // #[error("Unsupported reserved value, not ignorable.")]
+    ReservedDiscard,
+
+    // #[error("Feature is not yet implemented")]
+    Unimplemented
+}
+
+impl From<nibble_buf::Error> for XpiVlu4Error {
+    fn from(e: nibble_buf::Error) -> Self {
+        XpiVlu4Error::NibbleBuf(e)
+    }
+}
+
+impl From<bit_buf::Error> for XpiVlu4Error {
+    fn from(e: bit_buf::Error) -> Self {
+        XpiVlu4Error::BitBuf(e)
+    }
 }

@@ -1,5 +1,4 @@
-// #![no_std]
-extern crate alloc;
+#![no_std]
 
 pub mod q_numbers;
 pub mod units;

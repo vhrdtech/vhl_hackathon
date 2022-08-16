@@ -1,5 +1,5 @@
 use core::fmt::{Debug, Display, Formatter};
-use thiserror::Error;
+// use thiserror::Error;
 use crate::serdes::BitBuf;
 use crate::serdes::nibble_buf::Error::{MalformedVlu4U32, OutOfBounds, UnalignedAccess};
 use crate::serdes::DeserializeVlu4;
@@ -14,13 +14,13 @@ pub struct NibbleBuf<'i> {
     is_at_byte_boundary: bool,
 }
 
-#[derive(Error, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Error {
-    #[error("Out of bounds access")]
+    // #[error("Out of bounds access")]
     OutOfBounds,
-    #[error("Wrong vlu4 number")]
+    // #[error("Wrong vlu4 number")]
     MalformedVlu4U32,
-    #[error("Unaligned access for slice")]
+    // #[error("Unaligned access for slice")]
     UnalignedAccess,
 }
 
@@ -310,8 +310,8 @@ impl<'i> NibbleBufMut<'i> {
 #[cfg(test)]
 mod test {
     extern crate std;
+    use std::format;
 
-    use alloc::format;
     use crate::serdes::nibble_buf::Error;
     use super::{NibbleBuf, NibbleBufMut};
 
