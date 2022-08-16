@@ -114,8 +114,8 @@ pub mod addressing;
 // pub mod resource_info;
 // pub mod node_info;
 // pub mod broadcast;
-// pub mod rate;
-// pub mod priority;
+pub mod rate;
+pub mod priority;
 pub mod error;
 
 pub use uri::{Uri, UriIter};

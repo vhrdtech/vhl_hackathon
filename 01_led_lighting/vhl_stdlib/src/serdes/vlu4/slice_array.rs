@@ -1,6 +1,6 @@
 use std::iter::FusedIterator;
 use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::DeserializeVlu4;
+use crate::serdes::DeserializeVlu4;
 
 /// Variable size array of u8 slices, aligned to byte boundary.
 ///

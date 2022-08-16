@@ -1,5 +1,5 @@
 use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::DeserializeVlu4;
+use crate::serdes::DeserializeVlu4;
 use crate::serdes::xpi_vlu4::{Uri, UriMask};
 use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 

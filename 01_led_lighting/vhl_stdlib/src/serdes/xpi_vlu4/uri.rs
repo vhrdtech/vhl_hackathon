@@ -1,7 +1,7 @@
 use core::fmt::{Debug, Display, Formatter};
 use core::iter::FusedIterator;
-use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::{DeserializeVlu4, NibbleBuf};
+use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
 use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 
 /// Sequence of numbers uniquely identifying one of the resources.

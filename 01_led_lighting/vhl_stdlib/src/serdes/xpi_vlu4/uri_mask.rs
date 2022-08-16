@@ -1,5 +1,5 @@
-use crate::serdes::NibbleBuf;
-use crate::serdes::vlu4::{DeserializeVlu4, Vlu4U32Array, Vlu4U32ArrayIter};
+use crate::serdes::{NibbleBuf, DeserializeVlu4};
+use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
 use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
 
 /// Mask that allows to select many resources at a particular level. Used in combination with [Uri] to
