@@ -62,6 +62,14 @@ pub enum NodeSet<'i> {
     /// Request is targeted at only one specific node.
     /// Any resources can be used from the node's vhL description.
     Unicast(NodeId),
+
+    /// Request is targeted at only one node, but through traits interface.
+    /// More expensive in terms of size and processing, but gives other benefits.
+    UnicastTraits {
+        destination: NodeId,
+        traits: TraitSet<'i>,
+    },
+
     /// Request is targeted at many nodes at once. Only nodes implementing a set of common traits can
     /// be addressed that way.
     ///
