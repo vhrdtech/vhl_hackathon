@@ -1,3 +1,4 @@
+use core::fmt::{Display, Formatter};
 use crate::serdes::{NibbleBuf, DeserializeVlu4};
 use crate::serdes::vlu4::{Vlu4U32Array, Vlu4U32ArrayIter};
 use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
@@ -142,6 +143,22 @@ impl<'i> Iterator for UriMaskIter<'i> {
         }
     }
 }
+
+impl<'i> Display for UriMask<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        write!(f, "UriMask(")?;
+        let iter = self.iter();
+        let len = iter.size_hint().0;
+        for (i, id) in iter.enumerate() {
+            write!(f, "{}", id)?;
+            if i < len - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, ")")
+    }
+}
+
 
 #[cfg(test)]
 mod test {

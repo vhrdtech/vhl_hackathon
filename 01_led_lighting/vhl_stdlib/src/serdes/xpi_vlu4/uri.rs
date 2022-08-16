@@ -107,14 +107,22 @@ impl<'i> FusedIterator for UriIter<'i> {}
 impl<'i> Display for Uri<'i> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let mut uri_iter = self.iter().peekable();
-        write!(f, "Uri(/")?;
+        if f.alternate() {
+            write!(f, "Uri(/")?;
+        } else {
+            write!(f, "/")?;
+        }
         while let Some(uri_part) = uri_iter.next() {
             write!(f, "{}", uri_part)?;
             if uri_iter.peek().is_some() {
                 write!(f, "/")?;
             }
         }
-        write!(f, ")")
+        if f.alternate() {
+            write!(f, ")")
+        } else {
+            write!(f, "")
+        }
     }
 }
 
@@ -126,7 +134,9 @@ impl<'i> Debug for Uri<'i> {
 
 #[cfg(test)]
 mod test {
-    use alloc::format;
+    extern crate std;
+    use std::format;
+
     use crate::serdes::NibbleBuf;
     use super::Uri;
     use crate::serdes::vlu4::Vlu4U32Array;
