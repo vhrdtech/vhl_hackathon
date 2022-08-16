@@ -1,6 +1,6 @@
 // use hash32_derive::Hash32;
 use core::fmt::{Display, Formatter, Result as FmtResult};
-use crate::serdes::BitBuf;
+use crate::serdes::{BitBuf, DeserializeVlu4, NibbleBuf};
 use crate::serdes::DeserializeBits;
 use crate::serdes::vlu4::TraitSet;
 use crate::serdes::xpi_vlu4::{Uri, MultiUri};
@@ -46,7 +46,7 @@ impl<'i> DeserializeBits<'i> for NodeId {
     fn des_bits<'di>(rdr: &'di mut BitBuf<'i>) -> Result<Self, Self::Error> {
         let id = rdr.get_up_to_8(7)?;
         // NOTE(unsafe): get_up_to_8(7) is guaranteed to return only 7 bits in u8 at positions 6:0
-        Ok(unsafe { NodeId::new_unchecked(id) })
+        Ok(NodeId(id))
     }
 }
 
@@ -55,7 +55,15 @@ impl<'i> DeserializeBits<'i> for NodeId {
 // Might be narrowed down to less bits. Detect an overflow when old request(s) was still unanswered.
 // Should pause in that case or cancel all old requests. Overflow is ignored for subscriptions.
 max_bound_number!(RequestId, u8, 31, "Req:{}");
+impl<'i> DeserializeVlu4<'i> for RequestId {
+    type Error = crate::serdes::nibble_buf::Error;
 
+    fn des_vlu4<'di>(rdr: &'di mut NibbleBuf<'i>) -> Result<Self, Self::Error> {
+        let tail_byte = rdr.get_u8()?;
+        let request_id = tail_byte & 0b0001_1111;
+        Ok(RequestId(request_id & 0b0001_1111))
+    }
+}
 
 #[derive(Copy, Clone, Debug)]
 pub enum NodeSet<'i> {
@@ -94,6 +102,24 @@ pub enum NodeSet<'i> {
     // Broadcast,
 }
 
+impl<'i> DeserializeBits<'i> for NodeSet<'i> {
+    type Error = crate::serdes::bit_buf::Error;
+
+    fn des_bits<'di>(_rdr: &'di mut BitBuf<'i>) -> Result<Self, Self::Error> {
+        todo!() // deserialize UnicastTraits or Multicast
+    }
+}
+
+impl<'i> Display for NodeSet<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            NodeSet::Unicast(node_id) => write!(f, "{}", node_id),
+            NodeSet::UnicastTraits { destination, traits } => write!(f, "{}{}", destination, traits),
+            NodeSet::Multicast { .. } => write!(f, "M_impl")
+        }
+    }
+}
+
 /// It is possible to perform operations on a set of resources at once for reducing requests and
 /// responses amount.
 ///
@@ -112,4 +138,13 @@ pub enum XpiResourceSet<'i> {
 
     /// Selects any set of resources at any depths at once.
     MultiUri(MultiUri<'i>),
+}
+
+impl<'i> Display for XpiResourceSet<'i> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        match self {
+            XpiResourceSet::Uri(uri) => write!(f, "{}", uri),
+            XpiResourceSet::MultiUri(multi_uri) => write!(f, "{}", multi_uri),
+        }
+    }
 }
