@@ -1,4 +1,7 @@
-use crate::discrete::U7Sp1;
+use crate::discrete::U2Sp1;
+use crate::serdes::{BitBuf, DeserializeBits};
+use crate::serdes::xpi_vlu4::error::XpiVlu4Error;
+
 
 /// Priority selection: lossy or lossless (to an extent).
 /// Truly lossless mode is not achievable, for example if connection is physically lost mid-transfer,
@@ -23,6 +26,19 @@ use crate::discrete::U7Sp1;
 /// Priority may be mapped into fewer levels by the underlying Link? (needed for constrained channels)
 #[derive(Copy, Clone, Debug)]
 pub enum Priority {
-    Lossy(U7Sp1), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
-    Lossless(U7Sp1),
+    Lossy(U2Sp1), // numbers must be u<7, +1> (range 1..=128) or natural to avoid confusions
+    Lossless(U2Sp1),
+}
+
+impl<'i> DeserializeBits<'i> for Priority {
+    type Error = XpiVlu4Error;
+
+    fn des_bits<'di>(rdr: &'di mut BitBuf<'i>) -> Result<Self, Self::Error> {
+        let is_lossless = rdr.get_bit()?;
+        if is_lossless {
+            Ok(Priority::Lossless(rdr.des_bits()?))
+        } else {
+            Ok(Priority::Lossy(rdr.des_bits()?))
+        }
+    }
 }

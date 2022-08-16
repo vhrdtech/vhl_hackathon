@@ -1,5 +1,7 @@
 // use hash32_derive::Hash32;
 use core::fmt::{Display, Formatter, Result as FmtResult};
+use crate::serdes::BitBuf;
+use crate::serdes::DeserializeBits;
 use crate::serdes::vlu4::TraitSet;
 use crate::serdes::xpi_vlu4::{Uri, MultiUri};
 
@@ -38,6 +40,15 @@ macro_rules! max_bound_number {
 }
 
 max_bound_number!(NodeId, u8, 127, "N:{}");
+impl<'i> DeserializeBits<'i> for NodeId {
+    type Error = crate::serdes::bit_buf::Error;
+
+    fn des_bits<'di>(rdr: &'di mut BitBuf<'i>) -> Result<Self, Self::Error> {
+        let id = rdr.get_up_to_8(7)?;
+        // NOTE(unsafe): get_up_to_8(7) is guaranteed to return only 7 bits in u8 at positions 6:0
+        Ok(unsafe { NodeId::new_unchecked(id) })
+    }
+}
 
 // Each outgoing request must be marked with an increasing number in order to distinguish
 // requests of the same kind and map responses.
