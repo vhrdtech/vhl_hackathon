@@ -3,66 +3,109 @@
 
 mod radio;
 
-extern crate panic_rtt_target;
-
 use core::fmt;
-use cfg_if::cfg_if;
 use cortex_m::asm::delay;
-use embedded_graphics::Drawable;
-use embedded_graphics::geometry::{OriginDimensions, Point};
-use embedded_graphics::image::{Image, ImageRaw};
-use embedded_graphics::mono_font::ascii::FONT_9X18_BOLD;
-use embedded_graphics::mono_font::MonoTextStyle;
-use embedded_graphics::pixelcolor::{BinaryColor, Rgb565};
-use embedded_graphics::text::Text;
-use embedded_graphics::transform::Transform;
-use heapless::{consts::U8, spsc};
-use nb::block;
-use rtt_target::{rprint, rprintln};
-use ssd1306::{I2CDisplayInterface, Ssd1306};
-use ssd1306::mode::DisplayConfig;
-use ssd1306::prelude::{DisplayRotation, DisplaySize128x64};
-use ssd1331::DisplayRotation::{Rotate0, Rotate180};
-use stm32l4xx_hal::{i2c, pac::{self, LPUART1}, prelude::*, serial::{self, Config, Serial}};
-use stm32l4xx_hal::delay::Delay;
-use stm32l4xx_hal::gpio::{Floating, H8, Input, L8, Output, Pin, PushPull};
+use panic_rtt_target as _;
 use stm32l4xx_hal::hal::blocking::delay::DelayMs;
-use stm32l4xx_hal::i2c::I2c;
-use stm32l4xx_hal::spi::Spi;
-use sx127x_lora::MODE;
-use tinybmp::Bmp;
-use crate::radio::{FrameType, RadioFrame, HeartBeat};
 
-pub const SYSCLK: u32 = 64_000_000;
+#[rtic::app(device = stm32l4xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2])]
+mod app {
+    use cfg_if::cfg_if;
+    use embedded_graphics::Drawable;
+    use embedded_graphics::geometry::{OriginDimensions, Point};
+    use embedded_graphics::image::{Image, ImageRaw};
+    use embedded_graphics::mono_font::ascii::{FONT_6X13_BOLD, FONT_8X13_BOLD, FONT_9X18_BOLD};
+    use embedded_graphics::mono_font::MonoTextStyle;
+    use embedded_graphics::pixelcolor::{BinaryColor, Rgb565, RgbColor};
+    use embedded_graphics::text::Text;
+    use embedded_graphics::transform::Transform;
+    use heapless::{consts::U8, spsc};
+    use nb::block;
+    use rtt_target::{DownChannel, rprint, rprintln, rtt_init};
+    use ssd1306::{I2CDisplayInterface, Ssd1306};
+    use ssd1306::mode::DisplayConfig;
+    use ssd1306::prelude::{DisplayRotation, DisplaySize128x64};
+    use ssd1331::DisplayRotation::{Rotate0, Rotate180};
+    use stm32l4xx_hal::{i2c, pac::{self, LPUART1}, prelude::*, serial::{self, Config, Serial}};
+    use stm32l4xx_hal::delay::Delay;
+    use stm32l4xx_hal::gpio::{Floating, H8, Input, L8, Output, Pin, PushPull};
+    use stm32l4xx_hal::hal::blocking::delay::DelayMs;
+    use stm32l4xx_hal::i2c::I2c;
+    use stm32l4xx_hal::spi::Spi;
+    use sx127x_lora::MODE;
+    use tinybmp::Bmp;
+    use crate::radio::{FrameType, RadioFrame, HeartBeat};
+    use core::fmt::Write;
+    use embedded_graphics::prelude::WebColors;
+    use stm32l4xx_hal::rcc::{ClockSecuritySystem, CrystalBypass, LpUart1ClockSource, PllConfig, PllDivider, PllSource};
+    use dwt_systick_monotonic::DwtSystick;
+    use crate::{FakeDelay, StrWriter};
 
-#[rtic::app(device = stm32l4xx_hal::pac)]
-const APP: () = {
-    struct Resources {
+    #[shared]
+    struct SharedResources {
+
+    }
+
+    #[local]
+    struct LocalResources {
         rx: serial::Rx<LPUART1>,
         tx: serial::Tx<LPUART1>,
 
         pps_input: Pin<Input<Floating>, H8, 'B', 14>,
+
+        rtt_down: DownChannel,
 
         //
         // rx_prod: spsc::Producer<'static, u8, U8>,
         // rx_cons: spsc::Consumer<'static, u8, U8>,
     }
 
-    #[init]
-    fn init(cx: init::Context) -> init::LateResources {
-        static mut RX_QUEUE: spsc::Queue<u8, U8> = spsc::Queue(heapless::i::Queue::new());
+    pub const SYSCLK: u32 = 24_000_000;
+    #[monotonic(binds = SysTick, default = true)]
+    type DwtSystMono = DwtSystick<SYSCLK>;
 
-        rtt_target::rtt_init_print!();
-        rprint!("Initializing... ");
+    #[init(local = [rx_queue: spsc::Queue<u8, U8> = spsc::Queue(heapless::i::Queue::new())])]
+    fn init(cx: init::Context) -> (SharedResources, LocalResources, init::Monotonics) {
+        // static mut RX_QUEUE: spsc::Queue<u8, U8> = spsc::Queue(heapless::i::Queue::new());
+
+        // rtt_target::rtt_init_print!();
+        let channels = rtt_init! {
+            up: {
+                0: { // channel number
+                    size: 1024 // buffer size in bytes
+                    mode: NoBlockSkip // mode (optional, default: NoBlockSkip, see enum ChannelMode)
+                    name: "Terminal" // name (optional, default: no name)
+                }
+            }
+            down: {
+                0: {
+                    size: 64
+                    name: "Terminal"
+                }
+            }
+        };
+
+        rtt_target::set_print_channel(channels.up.0);
+
+        rprintln!("Initializing... ");
 
         let p = pac::Peripherals::take().unwrap();
 
+        let mut dcb = cx.core.DCB;
+        let dwt = cx.core.DWT;
+        let systick = cx.core.SYST;
+        let mono = DwtSystick::new(&mut dcb, dwt, systick, SYSCLK);
 
         let mut rcc = p.RCC.constrain();
         let mut flash = p.FLASH.constrain();
         let mut pwr = p.PWR.constrain(&mut rcc.apb1r1);
 
-        let clocks = rcc.cfgr.sysclk(SYSCLK.Hz()).freeze(&mut flash.acr, &mut pwr);
+        let clocks = rcc.cfgr
+            .hse(16.MHz(), CrystalBypass::Disable, ClockSecuritySystem::Disable)
+            .pll_source(PllSource::HSE)
+            .sysclk_with_pll(SYSCLK.Hz(), PllConfig::new(1, 12, PllDivider::Div8))
+            .lpuart1_clk_src(LpUart1ClockSource::Pclk)
+            .freeze(&mut flash.acr, &mut pwr);
         // let mut delay = Delay::new(cp.SYST, clocks);
 
         let mut gpioa = p.GPIOA.split(&mut rcc.ahb2);
@@ -90,12 +133,13 @@ const APP: () = {
 
         let mut led_red = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
         let mut led_green = gpioa.pa10.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
-
+        led_red.set_high();
+        led_green.set_high();
 
         let mut serial = Serial::lpuart1(
             p.LPUART1,
             (tx_pin, rx_pin),
-            Config::default().baudrate(115200.bps()),
+            Config::default().baudrate(9600.bps()),
             clocks,
             &mut rcc.apb1r2,
         );
@@ -177,6 +221,8 @@ const APP: () = {
                 let im = Image::new(&raw, Point::new(32, 0));
                 im.draw(&mut display).unwrap();
                 display.flush().unwrap();
+
+                let style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::On);
             } else if #[cfg(feature = "oled_color_ssd1331")] {
                 let sck = gpioc
                     .pc10
@@ -223,23 +269,21 @@ const APP: () = {
                 moved.draw(&mut display).unwrap();
 
                 display.flush().unwrap();
+
+                let style = MonoTextStyle::new(&FONT_6X13_BOLD, Rgb565::CSS_DEEP_SKY_BLUE);
             }
         }
 
-        let mut buf = [0u8; 32];
-        let mut buf = StrWriter::new(&mut buf);
-        use core::fmt::Write;
-        write!(buf, "N:{}", 123);
-
-        let style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::On);
-        Text::new(buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
+        delay.delay_ms(255u8);
+        display.clear();
         display.flush().unwrap();
-        rprintln!("str: {}", buf.as_str());
 
+        let mut str_buf = [0u8; 128];
+        let mut str_buf = StrWriter::new(&mut str_buf);
 
 
         let (tx, rx) = serial.split();
-        let (rx_prod, rx_cons) = RX_QUEUE.split();
+        let (rx_prod, rx_cons) = cx.local.rx_queue.split();
 
         // let mut delay = Delay::new(cp.SYST, clocks);
         // delay.delay_ms(1000u32);
@@ -256,110 +300,157 @@ const APP: () = {
             remote_rssi: 0
         };
 
-        loop {
-            cfg_if! {
-                if #[cfg(feature = "oled_bw_ssd1306")] {
-                    let poll = lora.poll_irq(Some(100), &mut delay);
-                    match poll {
-                        Ok(size) => {
-                            match lora.read_packet(&mut buf) { // Received buffer. NOTE: 255 bytes are always returned
-                                Ok(packet) => {
-                                    rprintln!("LoRa packet:");
-                                    led_green.toggle();
-                                    // for b in packet {
-                                    //     rprint!("{:02x} ", *b);
-                                    // }
-                                    let frame = RadioFrame::deserialize(packet);
-
-                                    match frame {
-                                        Ok(frame) => {
-                                            match frame.frame_type {
-                                                // FrameType::CANBusForward(can_frame) => {
-                                                //     rprintln!("Forwarding: {:?}", can_frame);
-                                                //     can.transmit(&Frame::new_data(
-                                                //         vhrdcanid2bxcanid(can_frame.id),
-                                                //         Data::new(can_frame.data()).unwrap(),
-                                                //     )).ok();
-                                                // }
-                                                FrameType::HeartBeat(hb) => {
-                                                    rprintln!("RSSI: {} Heartbeat: {:?}", lora.get_packet_rssi().unwrap_or(-777), hb);
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            rprintln!("Deser err: {:?}", e);
-                                            led_red.toggle();
-                                        }
-                                    }
-                                },
-                                Err(_) => {}
-                            }
-                        },
-                        Err(_) => { rprintln!("LoRa rx timeout"); led_red.toggle(); }
-                    }
-                }
-            }
-
-            cfg_if! {
-                if #[cfg(feature = "oled_color_ssd1331")] {
-                    loop {
-                        hb.remote_rssi = lora.get_packet_rssi().unwrap_or(-777);
-                        hb.uptime += 1;
-
-                        let frame = RadioFrame::new(10, 110, FrameType::HeartBeat(hb));
-                        match frame.serialize(&mut buf) {
-                            Ok(buf) => {
-                                match lora.transmit_payload(buf) {
-                                    Ok(_) => {
-                                        while lora.transmitting().unwrap_or(false) {
-                                            cortex_m::asm::delay(1000);
-                                        }
-                                        rprintln!("Sent LoRa packet");
-                                        led_green.toggle();
-
-                                    },
-                                    Err(e) => {
-                                        rprintln!("LoRa TX err: {:?}", e),
-                                        led_red.toggle();
-                                    }
-                                }
-                            },
-                            Err(e) => {
-                                rprintln!("Ser error: {:?}", e);
-                                led_red.toggle();
-                            }
-                        }
-                        delay.delay_ms(100_u8);
-                    }
-                }
+        cfg_if! {
+            if #[cfg(feature = "oled_bw_ssd1306")] {
+                let is_rx = true;
+            } else {
+                let is_rx = false;
             }
         }
+        //
+        // loop {
+        //     if is_rx {
+        //         let poll = lora.poll_irq(Some(100), &mut delay);
+        //         match poll {
+        //             Ok(size) => {
+        //                 match lora.read_packet(&mut buf) { // Received buffer. NOTE: 255 bytes are always returned
+        //                     Ok(packet) => {
+        //                         rprintln!("LoRa packet:");
+        //                         // led_green.toggle();
+        //                         // for b in packet {
+        //                         //     rprint!("{:02x} ", *b);
+        //                         // }
+        //                         let frame = RadioFrame::deserialize(packet);
+        //
+        //                         match frame {
+        //                             Ok(frame) => {
+        //                                 match frame.frame_type {
+        //                                     // FrameType::CANBusForward(can_frame) => {
+        //                                     //     rprintln!("Forwarding: {:?}", can_frame);
+        //                                     //     can.transmit(&Frame::new_data(
+        //                                     //         vhrdcanid2bxcanid(can_frame.id),
+        //                                     //         Data::new(can_frame.data()).unwrap(),
+        //                                     //     )).ok();
+        //                                     // }
+        //                                     FrameType::HeartBeat(hb) => {
+        //                                         let rssi_rx = lora.get_packet_rssi().unwrap_or(-777);
+        //                                         rprintln!("RSSI local: {} Heartbeat: {:?}", rssi_rx, hb);
+        //
+        //                                         str_buf.clear();
+        //                                         write!(str_buf, "RSSI rx: {}\nRSSI rem: {}\nCounter: {}", rssi_rx, hb.remote_rssi, hb.uptime);
+        //                                         display.clear();
+        //                                         Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
+        //                                         display.flush().unwrap();
+        //                                     }
+        //
+        //                                 }
+        //                             }
+        //                             Err(e) => {
+        //                                 rprintln!("Deser err: {:?}", e);
+        //                                 // led_red.toggle();
+        //                             }
+        //                         }
+        //                     },
+        //                     Err(_) => {}
+        //                 }
+        //             },
+        //             Err(_) => {
+        //                 rprintln!("LoRa rx timeout");
+        //                 // str_buf.clear();
+        //                 // write!(str_buf, "No Signal");
+        //                 // display.clear();
+        //                 // Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
+        //                 // display.flush().unwrap();
+        //                 // led_red.toggle();
+        //             }
+        //         }
+        //     } else {
+        //
+        //         hb.remote_rssi = lora.get_packet_rssi().unwrap_or(-777);
+        //         hb.uptime += 1;
+        //
+        //
+        //         let frame = RadioFrame::new(10, 110, FrameType::HeartBeat(hb));
+        //         match frame.serialize(&mut buf) {
+        //             Ok(buf) => {
+        //                 match lora.transmit_payload(buf) {
+        //                     Ok(_) => {
+        //                         while lora.transmitting().unwrap_or(false) {
+        //                             cortex_m::asm::delay(1000);
+        //                         }
+        //                         rprintln!("Sent LoRa packet");
+        //                         // led_green.toggle();
+        //                         str_buf.clear();
+        //                         write!(str_buf, "Sent: {}", hb.uptime);
+        //                         display.clear();
+        //                         Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
+        //                         display.flush().unwrap();
+        //
+        //                     },
+        //                     Err(e) => {
+        //                         rprintln!("LoRa TX err: {:?}", e);
+        //                         // led_red.toggle();
+        //                     }
+        //                 }
+        //             },
+        //             Err(e) => {
+        //                 rprintln!("Ser error: {:?}", e);
+        //                 // led_red.toggle();
+        //             }
+        //         }
+        //     }
+        // }
 
-        init::LateResources {
-            rx,
-            tx,
+        (
+            SharedResources {
 
-            pps_input,
-            //
-            // rx_prod,
-            // rx_cons,
-        }
+            },
+            LocalResources {
+                rx,
+                tx,
+
+                pps_input,
+
+                rtt_down: channels.down.0,
+                //
+                // rx_prod,
+                // rx_cons,
+            },
+            init::Monotonics(mono)
+        )
     }
 
-    #[idle(resources = [tx, pps_input,  ])]
+    #[idle(local = [rtt_down, tx, pps_input,  ])]
     fn idle(cx: idle::Context) -> ! {
         // let rx = cx.resources.rx_cons;
-        let tx = cx.resources.tx;
-        let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.resources.pps_input;
+        let tx = cx.local.tx;
+        let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.local.pps_input;
         // let led1: &mut Pin<Output<PushPull>, L8, 'B', 2> = cx.resources.led1;
 
+        let rtt_down: &mut DownChannel = cx.local.rtt_down;
+        let mut buf = [0u8; 64];
+        let mut counter = 0;
         loop {
+            let len = rtt_down.read(&mut buf);
+            if len > 0 {
+                rprintln!("Sending: {}", len);
+                for c in &buf[0..len] {
+                    block!(tx.write(*c));
+                }
+            }
+
             // if let Some(b) = rx.dequeue() {
             //     rprintln!("Echoing '{}'", b as char);
             //     block!(tx.write(b)).unwrap();
             // }
             // block!(tx.write('x' as u8)).unwrap();
             cortex_m::asm::delay(1_000_000);
+            rprint!(=> 2, ".");
+            counter += 1;
+            if counter == 50 {
+                rprintln!(=> 2, "");
+                counter = 0;
+            }
             //
             // if pps_input.is_high() {
             //     led1.set_high();
@@ -369,14 +460,14 @@ const APP: () = {
         }
     }
 
-    #[task(binds = LPUART1, resources = [rx])]
-    fn usart2(cx: usart2::Context) {
-        let rx = cx.resources.rx;
+    #[task(binds = LPUART1, local = [rx])]
+    fn lpuart1(cx: lpuart1::Context) {
+        let rx = cx.local.rx;
         // let queue = cx.resources.rx_prod;
 
         let b = match rx.read() {
             Ok(b) => {
-                rprintln!("Read: {}", b);
+                rprint!(=> 1, "{}", b as char);
             },
             Err(err) => {
                 rprintln!("Error reading from USART: {:?}", err);
@@ -391,12 +482,12 @@ const APP: () = {
         //     }
         // }
     }
-};
+}
 
 pub struct FakeDelay {}
 impl DelayMs<u8> for FakeDelay {
     fn delay_ms(&mut self, ms: u8) {
-        delay(ms as u32 * (SYSCLK / 1_000))
+        delay(ms as u32 * (app::SYSCLK / 1_000))
     }
 }
 
@@ -415,18 +506,20 @@ impl<'i> StrWriter<'i> {
     pub fn as_str(&'i self) -> &'i str {
         unsafe { core::str::from_utf8_unchecked(&self.buf[..self.pos]) }
     }
+
+    pub fn clear(&mut self) {
+        self.pos = 0;
+    }
 }
 
 impl<'i> fmt::Write for StrWriter<'i> {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        rprintln!("write_str: {}", s);
         let s = s.as_bytes();
         if self.buf.len() - self.pos < s.len() {
             return Err(fmt::Error{})
         }
         self.buf[self.pos .. self.pos + s.len()].copy_from_slice(s);
         self.pos += s.len();
-        rprintln!("ok");
         Ok(())
     }
 }
