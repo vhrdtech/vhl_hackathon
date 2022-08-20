@@ -12,7 +12,7 @@ pub struct RadioFrame {
 }
 impl RadioFrame {
     pub fn new(from: u32, to: u32, frame_type: FrameType) -> Self {
-        let mut frame = Self {
+        let frame = Self {
             magic: MAGIC,
             source_node_id: from,
             destination_node_id: to,

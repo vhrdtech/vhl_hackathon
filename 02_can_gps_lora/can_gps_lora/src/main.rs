@@ -2,48 +2,48 @@
 #![no_std]
 
 mod radio;
+mod oled_bw_ssd1306;
+mod util;
+mod lora;
+mod oled_color_ssd1331;
 
-use core::fmt;
-use cortex_m::asm::delay;
 use panic_rtt_target as _;
-use stm32l4xx_hal::hal::blocking::delay::DelayMs;
 
 #[rtic::app(device = stm32l4xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2])]
 mod app {
     use cfg_if::cfg_if;
-    use embedded_graphics::Drawable;
-    use embedded_graphics::geometry::{OriginDimensions, Point};
-    use embedded_graphics::image::{Image, ImageRaw};
-    use embedded_graphics::mono_font::ascii::{FONT_6X13_BOLD, FONT_8X13_BOLD, FONT_9X18_BOLD};
-    use embedded_graphics::mono_font::MonoTextStyle;
-    use embedded_graphics::pixelcolor::{BinaryColor, Rgb565, RgbColor};
-    use embedded_graphics::text::Text;
-    use embedded_graphics::transform::Transform;
+
     use heapless::{consts::U8, spsc};
     use nb::block;
     use rtt_target::{DownChannel, rprint, rprintln, rtt_init};
-    use ssd1306::{I2CDisplayInterface, Ssd1306};
-    use ssd1306::mode::DisplayConfig;
-    use ssd1306::prelude::{DisplayRotation, DisplaySize128x64};
-    use ssd1331::DisplayRotation::{Rotate0, Rotate180};
-    use stm32l4xx_hal::{i2c, pac::{self, LPUART1}, prelude::*, serial::{self, Config, Serial}};
-    use stm32l4xx_hal::delay::Delay;
-    use stm32l4xx_hal::gpio::{Floating, H8, Input, L8, Output, Pin, PushPull};
+    use stm32l4xx_hal::{i2c, pac::{LPUART1}, prelude::*, serial::{Config, Serial}, serial};
+    use stm32l4xx_hal::gpio::{Edge, Floating, H8, Input, Output, Pin, PushPull};
     use stm32l4xx_hal::hal::blocking::delay::DelayMs;
     use stm32l4xx_hal::i2c::I2c;
     use stm32l4xx_hal::spi::Spi;
     use sx127x_lora::MODE;
-    use tinybmp::Bmp;
-    use crate::radio::{FrameType, RadioFrame, HeartBeat};
-    use core::fmt::Write;
-    use embedded_graphics::prelude::WebColors;
+    use crate::radio::{HeartBeat};
     use stm32l4xx_hal::rcc::{ClockSecuritySystem, CrystalBypass, LpUart1ClockSource, PllConfig, PllDivider, PllSource};
-    use dwt_systick_monotonic::DwtSystick;
-    use crate::{FakeDelay, StrWriter};
+    use dwt_systick_monotonic::{DwtSystick, ExtU64};
+    use embedded_graphics::Drawable;
+    use embedded_graphics::geometry::{OriginDimensions, Point};
+    use embedded_graphics::image::{Image, ImageRaw};
+    use embedded_graphics::pixelcolor::BinaryColor;
+    use embedded_graphics::prelude::Transform;
+    use ssd1331::DisplayRotation::Rotate180;
+    use tinybmp::Bmp;
+    use crate::app;
+    use crate::lora::lora_task;
+    use crate::util::{FakeDelay};
+
+    use crate::oled_bw_ssd1306::oled_ssd1306_task;
+    use crate::oled_color_ssd1331::oled_ssd1331_task;
 
     #[shared]
     struct SharedResources {
-
+        local_heartbeat: HeartBeat,
+        remote_heartbeat: HeartBeat,
+        tx_flag: bool,
     }
 
     #[local]
@@ -51,13 +51,22 @@ mod app {
         rx: serial::Rx<LPUART1>,
         tx: serial::Tx<LPUART1>,
 
+        lora: crate::lora::Radio,
+
         pps_input: Pin<Input<Floating>, H8, 'B', 14>,
 
         rtt_down: DownChannel,
 
+        #[cfg(feature = "oled_bw_ssd1306")]
+        oled_ssd1306: crate::oled_bw_ssd1306::Display,
+        #[cfg(feature = "oled_color_ssd1331")]
+        oled_ssd1331: crate::oled_color_ssd1331::Display,
+
         //
         // rx_prod: spsc::Producer<'static, u8, U8>,
         // rx_cons: spsc::Consumer<'static, u8, U8>,
+
+        led_green: stm32l4xx_hal::gpio::Pin<Output<PushPull>, H8, 'A', 10_u8>,
     }
 
     pub const SYSCLK: u32 = 24_000_000;
@@ -89,7 +98,8 @@ mod app {
 
         rprintln!("Initializing... ");
 
-        let p = pac::Peripherals::take().unwrap();
+        // let p = pac::Peripherals::take().unwrap();
+        let mut p = cx.device;
 
         let mut dcb = cx.core.DCB;
         let dwt = cx.core.DWT;
@@ -113,7 +123,7 @@ mod app {
         let mut gpioc = p.GPIOC.split(&mut rcc.ahb2);
         let mut gpiod = p.GPIOD.split(&mut rcc.ahb2);
 
-        let mut on_off = gpioc.pc4.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
+        let on_off = gpioc.pc4.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
         let tx_pin = gpioc
             .pc1
             .into_alternate(&mut gpioc.moder, &mut gpioc.otyper, &mut gpioc.afrl);
@@ -129,7 +139,11 @@ mod app {
         rts_out.set_low();
         // rts_out.set_high();
 
-        let pps_input = gpiob.pb14.into_floating_input(&mut gpiob.moder, &mut gpiob.pupdr);
+        let mut pps_input = gpiob.pb14.into_floating_input(&mut gpiob.moder, &mut gpiob.pupdr);
+        pps_input.make_interrupt_source(&mut p.SYSCFG, &mut rcc.apb2);
+        pps_input.enable_interrupt(&mut p.EXTI);
+        pps_input.trigger_on_edge(&mut p.EXTI, Edge::Falling);
+
 
         let mut led_red = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
         let mut led_green = gpioa.pa10.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
@@ -167,24 +181,24 @@ mod app {
         let rfmod_rst = gpioc.pc8.into_push_pull_output(&mut gpioc.moder, &mut gpioc.otyper);
 
         let mut delay = FakeDelay{};
-        let lora = sx127x_lora::LoRa::new(spi, rfmod_cs, rfmod_rst, 915_i64, &mut delay);
-        let mut lora = match lora {
-            Ok(l) => {
+        let mut lora = sx127x_lora::LoRa::new(spi, rfmod_cs, rfmod_rst, 915_i64, &mut delay);
+        let lora = match lora {
+            Ok(mut l) => {
                 rprintln!("LoRa init ok");
-                l
+                let r = l.set_tx_power(17,1); //Using PA_BOOST. See your board for correct pin.
+                rprintln!("set_tx_power: {:?}", r);
+                Some(l)
             },
             Err(e) => {
-                loop {
-                    rprintln!("Lora error: {:?}", e);
-                    delay.delay_ms(250u8);
-                }
+                rprintln!("Lora error: {:?}", e);
+                None
             }
         };
-        let r = lora.set_tx_power(17,1); //Using PA_BOOST. See your board for correct pin.
-        rprintln!("set_tx_power: {:?}", r);
 
         cfg_if! {
             if #[cfg(feature = "oled_bw_ssd1306")] {
+                use ssd1306::prelude::*;
+
                 let mut scl =
                     gpiob
                         .pb6
@@ -212,8 +226,8 @@ mod app {
                     }
                 }
 
-                let interface = I2CDisplayInterface::new(i2c);
-                let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+                let interface = ssd1306::I2CDisplayInterface::new(i2c);
+                let mut display = ssd1306::Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
                     .into_buffered_graphics_mode();
                 display.init().unwrap();
 
@@ -221,8 +235,8 @@ mod app {
                 let im = Image::new(&raw, Point::new(32, 0));
                 im.draw(&mut display).unwrap();
                 display.flush().unwrap();
+                rprintln!("Display init done.");
 
-                let style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::On);
             } else if #[cfg(feature = "oled_color_ssd1331")] {
                 let sck = gpioc
                     .pc10
@@ -237,8 +251,8 @@ mod app {
                     p.SPI3,
                     (sck, miso, mosi),
                     MODE,
-                    // 1.MHz(),
-                    100.kHz(),
+                    4.MHz(),
+                    // 100.kHz(),
                     clocks,
                     &mut rcc.apb1r1,
                 );
@@ -258,7 +272,7 @@ mod app {
                 let bmp = tinybmp::Bmp::from_slice(include_bytes!("../rust_pride.bmp"))
                     .expect("Failed to load BMP image");
 
-                let im: Image<Bmp<Rgb565>> = Image::new(&bmp, Point::zero());
+                let im: Image<tinybmp::Bmp<embedded_graphics::pixelcolor::Rgb565>> = Image::new(&bmp, Point::zero());
 
                 // Position image in the center of the display
                 let moved = im.translate(Point::new(
@@ -270,17 +284,11 @@ mod app {
 
                 display.flush().unwrap();
 
-                let style = MonoTextStyle::new(&FONT_6X13_BOLD, Rgb565::CSS_DEEP_SKY_BLUE);
             }
         }
-
         delay.delay_ms(255u8);
         display.clear();
         display.flush().unwrap();
-
-        let mut str_buf = [0u8; 128];
-        let mut str_buf = StrWriter::new(&mut str_buf);
-
 
         let (tx, rx) = serial.split();
         let (rx_prod, rx_cons) = cx.local.rx_queue.split();
@@ -294,143 +302,79 @@ mod app {
 
         rprintln!("done.");
 
-        let mut buf = [0u8; 255];
         let mut hb = HeartBeat {
             uptime: 0,
             remote_rssi: 0
         };
 
-        cfg_if! {
-            if #[cfg(feature = "oled_bw_ssd1306")] {
-                let is_rx = true;
-            } else {
-                let is_rx = false;
-            }
-        }
-        //
-        // loop {
-        //     if is_rx {
-        //         let poll = lora.poll_irq(Some(100), &mut delay);
-        //         match poll {
-        //             Ok(size) => {
-        //                 match lora.read_packet(&mut buf) { // Received buffer. NOTE: 255 bytes are always returned
-        //                     Ok(packet) => {
-        //                         rprintln!("LoRa packet:");
-        //                         // led_green.toggle();
-        //                         // for b in packet {
-        //                         //     rprint!("{:02x} ", *b);
-        //                         // }
-        //                         let frame = RadioFrame::deserialize(packet);
-        //
-        //                         match frame {
-        //                             Ok(frame) => {
-        //                                 match frame.frame_type {
-        //                                     // FrameType::CANBusForward(can_frame) => {
-        //                                     //     rprintln!("Forwarding: {:?}", can_frame);
-        //                                     //     can.transmit(&Frame::new_data(
-        //                                     //         vhrdcanid2bxcanid(can_frame.id),
-        //                                     //         Data::new(can_frame.data()).unwrap(),
-        //                                     //     )).ok();
-        //                                     // }
-        //                                     FrameType::HeartBeat(hb) => {
-        //                                         let rssi_rx = lora.get_packet_rssi().unwrap_or(-777);
-        //                                         rprintln!("RSSI local: {} Heartbeat: {:?}", rssi_rx, hb);
-        //
-        //                                         str_buf.clear();
-        //                                         write!(str_buf, "RSSI rx: {}\nRSSI rem: {}\nCounter: {}", rssi_rx, hb.remote_rssi, hb.uptime);
-        //                                         display.clear();
-        //                                         Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
-        //                                         display.flush().unwrap();
-        //                                     }
-        //
-        //                                 }
-        //                             }
-        //                             Err(e) => {
-        //                                 rprintln!("Deser err: {:?}", e);
-        //                                 // led_red.toggle();
-        //                             }
-        //                         }
-        //                     },
-        //                     Err(_) => {}
-        //                 }
-        //             },
-        //             Err(_) => {
-        //                 rprintln!("LoRa rx timeout");
-        //                 // str_buf.clear();
-        //                 // write!(str_buf, "No Signal");
-        //                 // display.clear();
-        //                 // Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
-        //                 // display.flush().unwrap();
-        //                 // led_red.toggle();
-        //             }
-        //         }
-        //     } else {
-        //
-        //         hb.remote_rssi = lora.get_packet_rssi().unwrap_or(-777);
-        //         hb.uptime += 1;
-        //
-        //
-        //         let frame = RadioFrame::new(10, 110, FrameType::HeartBeat(hb));
-        //         match frame.serialize(&mut buf) {
-        //             Ok(buf) => {
-        //                 match lora.transmit_payload(buf) {
-        //                     Ok(_) => {
-        //                         while lora.transmitting().unwrap_or(false) {
-        //                             cortex_m::asm::delay(1000);
-        //                         }
-        //                         rprintln!("Sent LoRa packet");
-        //                         // led_green.toggle();
-        //                         str_buf.clear();
-        //                         write!(str_buf, "Sent: {}", hb.uptime);
-        //                         display.clear();
-        //                         Text::new(str_buf.as_str(), Point::new(5, 10), style).draw(&mut display).unwrap();
-        //                         display.flush().unwrap();
-        //
-        //                     },
-        //                     Err(e) => {
-        //                         rprintln!("LoRa TX err: {:?}", e);
-        //                         // led_red.toggle();
-        //                     }
-        //                 }
-        //             },
-        //             Err(e) => {
-        //                 rprintln!("Ser error: {:?}", e);
-        //                 // led_red.toggle();
-        //             }
-        //         }
-        //     }
-        // }
+
+
+        oled_ssd1306_task::spawn();
+        oled_ssd1331_task::spawn();
 
         (
             SharedResources {
-
+                local_heartbeat: HeartBeat { uptime: 0, remote_rssi: 0 },
+                remote_heartbeat: HeartBeat { uptime: 0, remote_rssi: 0 },
+                tx_flag: false,
             },
             LocalResources {
                 rx,
                 tx,
 
+                lora,
+
                 pps_input,
 
                 rtt_down: channels.down.0,
+
+                #[cfg(feature = "oled_bw_ssd1306")]
+                oled_ssd1306: display,
+                #[cfg(feature = "oled_color_ssd1331")]
+                oled_ssd1331: display,
                 //
                 // rx_prod,
                 // rx_cons,
+
+                led_green
             },
             init::Monotonics(mono)
         )
     }
 
-    #[idle(local = [rtt_down, tx, pps_input,  ])]
-    fn idle(cx: idle::Context) -> ! {
+    #[idle(shared = [local_heartbeat, remote_heartbeat, tx_flag], local = [rtt_down, tx, lora, led_green])]
+    fn idle(mut cx: idle::Context) -> ! {
+        rprintln!("idle entered");
+        let radio = cx.local.lora;
         // let rx = cx.resources.rx_cons;
         let tx = cx.local.tx;
-        let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.local.pps_input;
-        // let led1: &mut Pin<Output<PushPull>, L8, 'B', 2> = cx.resources.led1;
+        let led_green: &mut Pin<Output<PushPull>, H8, 'A', 10> = cx.local.led_green;
 
         let rtt_down: &mut DownChannel = cx.local.rtt_down;
         let mut buf = [0u8; 64];
         let mut counter = 0;
         loop {
+            led_green.toggle();
+
+            rprintln!("idle");
+            let tx_flag = cx.shared.tx_flag.lock(|flag| {
+                let was = *flag;
+                *flag = false;
+                was
+            });
+            // rprintln!("idle 2");
+            let update_display = cx.shared.local_heartbeat.lock(|local| {
+                cx.shared.remote_heartbeat.lock(|remote| {
+
+                    // rprintln!("idle 3");
+                    lora_task(radio, !tx_flag, local, remote)
+                })
+            });
+            if update_display {
+                app::oled_ssd1331_task::spawn();
+                app::oled_ssd1306_task::spawn();
+            }
+
             let len = rtt_down.read(&mut buf);
             if len > 0 {
                 rprintln!("Sending: {}", len);
@@ -460,7 +404,29 @@ mod app {
         }
     }
 
-    #[task(binds = LPUART1, local = [rx])]
+    #[task(priority = 2, binds = EXTI15_10, local = [pps_input])]
+    fn pps_sync_task(cx: pps_sync_task::Context) {
+        rprintln!("pps");
+        let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.local.pps_input;
+        pps_input.clear_interrupt_pending_bit();
+
+
+        #[cfg(feature = "oled_bw_ssd1306")]
+        let r = phase_shift_tx::spawn_after(500_u64.millis());
+        #[cfg(feature = "oled_color_ssd1331")]
+        let r = phase_shift_tx::spawn_after(50_u64.millis());
+        if r.is_err() {
+            rprintln!("pps {:?}", r);
+        }
+
+    }
+
+    #[task(priority = 2, shared = [tx_flag])]
+    fn phase_shift_tx(mut cx: phase_shift_tx::Context) {
+        cx.shared.tx_flag.lock(|flag| *flag = true);
+    }
+
+    #[task(priority = 3, binds = LPUART1, local = [rx])]
     fn lpuart1(cx: lpuart1::Context) {
         let rx = cx.local.rx;
         // let queue = cx.resources.rx_prod;
@@ -482,44 +448,26 @@ mod app {
         //     }
         // }
     }
+
+    extern "Rust" {
+        #[task(priority = 2, local = [oled_ssd1306], shared = [local_heartbeat, remote_heartbeat])]
+        fn oled_ssd1306_task(_: oled_ssd1306_task::Context);
+
+        #[task(priority = 2, local = [oled_ssd1331], shared = [local_heartbeat, remote_heartbeat])]
+        fn oled_ssd1331_task(_: oled_ssd1331_task::Context);
+    }
+
 }
 
-pub struct FakeDelay {}
-impl DelayMs<u8> for FakeDelay {
-    fn delay_ms(&mut self, ms: u8) {
-        delay(ms as u32 * (app::SYSCLK / 1_000))
-    }
+use cortex_m_rt::exception;
+use rtt_target::rprintln;
+
+#[exception]
+unsafe fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
+    panic!("HF: {:#?}", ef);
 }
 
-pub struct StrWriter<'i> {
-    buf: &'i mut [u8],
-    pos: usize,
-}
-
-impl<'i> StrWriter<'i> {
-    pub fn new(buf: &'i mut [u8]) -> Self {
-        StrWriter {
-            buf, pos: 0
-        }
-    }
-
-    pub fn as_str(&'i self) -> &'i str {
-        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.pos]) }
-    }
-
-    pub fn clear(&mut self) {
-        self.pos = 0;
-    }
-}
-
-impl<'i> fmt::Write for StrWriter<'i> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let s = s.as_bytes();
-        if self.buf.len() - self.pos < s.len() {
-            return Err(fmt::Error{})
-        }
-        self.buf[self.pos .. self.pos + s.len()].copy_from_slice(s);
-        self.pos += s.len();
-        Ok(())
-    }
+#[exception]
+unsafe fn DefaultHandler(irqn: i16) {
+    rprintln!("Unhandled IRQ: {}", irqn);
 }

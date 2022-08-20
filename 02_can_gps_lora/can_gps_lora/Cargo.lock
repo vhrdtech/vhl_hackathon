@@ -106,6 +106,7 @@ version = "0.1.0"
 dependencies = [
  "cfg-if",
  "cortex-m",
+ "cortex-m-rt",
  "cortex-m-rtic",
  "crc-any",
  "dwt-systick-monotonic",
