@@ -215,14 +215,13 @@ dependencies = [
  "cortex-m-rtic",
  "dwt-systick-monotonic",
  "embedded-graphics",
- "panic-rtt-target",
  "rtt-target",
  "serde",
  "smoltcp",
  "ssd1306",
  "ssmarshal",
  "stm32h7xx-hal",
- "vhl_stdlib",
+ "vhl-stdlib",
 ]
 
 [[package]]
@@ -394,16 +393,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "panic-rtt-target"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d6ab67bc881453e4c90f958c657c1303670ea87bc1a16e87fd71a40f656dce9"
-dependencies = [
- "cortex-m",
- "rtt-target",
 ]
 
 [[package]]
@@ -706,7 +695,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
-name = "vhl_stdlib"
+name = "vhl-stdlib"
 version = "0.1.0"
 
 [[package]]

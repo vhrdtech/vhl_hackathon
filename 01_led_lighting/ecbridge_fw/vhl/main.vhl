@@ -9,5 +9,8 @@
     /set_digit< fn(digit: u8), '2>
 
     /// Should be called directly from dispatcher
-    /sync< fn(), '3>
+    /sync< fn(a: u8, b: u8) -> u8, '3>
+
+    /// Should be called directly from dispatcher
+    /sync_2< fn(a: u8, b: u8) -> u8, '4>
 }

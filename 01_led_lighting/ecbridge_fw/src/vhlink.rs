@@ -33,7 +33,7 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
                 }
             };
 
-            xpi_dispatch(&mut ctx, xpi_request);
+            xpi_dispatch(&mut ctx, &xpi_request);
 
             rgr.release(rgr_len);
         }

@@ -6,8 +6,11 @@ mod ethernet;
 mod vhlink;
 mod xpi_dispatch;
 mod oled;
+mod vt100;
+mod logging;
 
-use panic_rtt_target as _;
+
+// use panic_rtt_target as _;
 use rtt_target::rprintln;
 
 pub const CORE_FREQ: u32 = 200_000_000;
@@ -24,6 +27,8 @@ mod app {
     use ethernet::ethernet_event;
     use vhlink::link_process;
     use oled::display_task;
+
+    const T: u8 = 0;
 
     #[monotonic(binds = SysTick, default = true)]
     type DwtSystMono = DwtSystick<CORE_FREQ>;
@@ -58,6 +63,7 @@ mod app {
         mut ctx: init::Context,
     ) -> (SharedResources, LocalResources, init::Monotonics) {
         rtt_init_print!();
+        log_info!(=>T, "ecbridge_fw_hackathon");
         // Initialise power...
         let pwr = ctx.device.PWR.constrain();
         let pwrcfg = pwr.freeze();
@@ -82,7 +88,7 @@ mod app {
         let systick = ctx.core.SYST;
         let mono = DwtSystick::new(&mut dcb, dwt, systick, CORE_FREQ);
 
-        rprintln!("Core init done");
+        log_debug!(=>T, "Core init done");
 
         // Initialise IO...
         let gpioa = ctx.device.GPIOA.split(ccdr.peripheral.GPIOA);
@@ -117,7 +123,7 @@ mod app {
         assert_eq!(ccdr.clocks.pclk1().raw(), 100_000_000); // PCLK 100MHz
         assert_eq!(ccdr.clocks.pclk2().raw(), 100_000_000); // PCLK 100MHz
         assert_eq!(ccdr.clocks.pclk4().raw(), 100_000_000); // PCLK 100MHz
-        rprintln!("Clocks ok");
+        log_debug!(=>T, "Clocks ok");
 
         let (eth_mac, eth_mtl, eth_dma, eth_prec) = (
             ctx.device.ETHERNET_MAC,
@@ -166,7 +172,7 @@ mod app {
         // blinky::spawn_after(1u64.secs()).unwrap();
         display_task::spawn().unwrap();
 
-        rprintln!("All init done");
+        log_debug!(=>T, "All init done");
         (
             SharedResources {
                 symbol: '-',
@@ -202,14 +208,14 @@ mod app {
     #[task]
     fn blinky(_ctx: blinky::Context) {
         let time = crate::app::monotonics::now().duration_since_epoch().to_millis();
-        rprintln!("now: {}ms", time);
+        log_info!(=>T, "now: {}ms", time);
         blinky::spawn_after(1u64.secs()).unwrap();
     }
 
     /// Must be spawned on Call to /set_digit
     #[task(shared = [digit])]
     fn set_digit(mut ctx: set_digit::Context, digit: u8) {
-        rprintln!(=>3, "set_digit task: {}", digit);
+        log_info!(=>T, "set_digit task: {}", digit);
         ctx.shared.digit.lock(|d| *d = digit);
         display_task::spawn().unwrap();
     }
@@ -227,7 +233,54 @@ mod app {
     }
 }
 
+use cortex_m_rt::exception;
+
+#[exception]
+unsafe fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
+    panic!("HF: {:#?}", ef);
+}
+
+#[exception]
+unsafe fn DefaultHandler(irqn: i16) {
+    for i in 0..8 {
+        log_error!(=>i, "Unhandled IRQ: {}", irqn);
+    }
+}
+
+#[inline(never)]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use cortex_m::interrupt;
+    // use rtt_target::{UpChannel, ChannelMode};
+    use core::sync::atomic::compiler_fence;
+    use core::sync::atomic::Ordering::SeqCst;
+
+    interrupt::disable();
+
+    // if let Some(mut channel) = unsafe { UpChannel::conjure(0) } {
+    //     channel.set_mode(ChannelMode::BlockIfFull);
+    //
+    //     writeln!(channel, "{}", info).ok();
+    // }
+
+    for i in 0..8 {
+        log_error!(=>i, "{}", info);
+    }
+
+    loop {
+        compiler_fence(SeqCst);
+    }
+}
+
 /// Must be called directly from dispatcher on Call to /sync
-fn sync_fn() {
-    rprintln!(=>3, "sync_fn() called");
+fn sync(a: u8, b: u8) -> u8 {
+    log_trace!(=>3, "sync_fn({}, {}) called", a, b);
+
+    a + b
+}
+
+fn sync_2(a: u8, b: u8) -> u8 {
+    log_trace!(=>3, "sync_fn_2({}, {}) called", a, b);
+
+    a - b
 }

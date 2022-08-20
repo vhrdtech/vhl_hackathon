@@ -7,11 +7,11 @@ edition = "2021"
 cortex-m = "0.7.4"
 cortex-m-rt = "0.7.1"
 stm32h7xx-hal = { path = "../../../stm32h7xx-hal", version = "0.12.2", features = ["rt", "stm32h743v", "ethernet"] }
-cortex-m-rtic = "1.1.2"
+cortex-m-rtic = "1.1.3"
 #dwt-systick-monotonic = "^1.0.0"
 dwt-systick-monotonic = { git = "https://github.com/rtic-rs/dwt-systick-monotonic.git", features = ["extend"] }
 rtt-target = { version = "0.3.1", features = ["cortex-m"] }
-panic-rtt-target = { version = "0.1.2", features = ["cortex-m"] }
+#panic-rtt-target = { version = "0.1.2", features = ["cortex-m"] }
 smoltcp = { version = "^0.8.1", default-features = false, features = [
     #    "log",
     "medium-ethernet",
@@ -33,10 +33,22 @@ ssmarshal = { version = "^1.0.0", default-features = false }
 ssd1306 = "0.7.0"
 embedded-graphics = "0.7.1"
 #uavcan-llr = { features = ["vhrdcan"], git = "https://github.com/vhrdtech/uavcan-llr.git" }
-vhl_stdlib = { path = "../vhl_stdlib" }
+vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }
 
 [features]
 proto-ipv6 = ["smoltcp/proto-ipv6"]
+
+log-text-rtt = [] # Log in text format over RTT
+log-text-can = [] # Log in text format over CAN
+log-defmt-rtt = [] # Log in defmt binary format over RTT
+log-defmt-can = [] # Log in defmt binary format over CAN
+
+log-level-default = []
+log-level-trace = ["log-level-debug"]
+log-level-debug = ["log-level-info"]
+log-level-info = ["log-level-warn"]
+log-level-warn = ["log-level-error"]
+log-level-error = []
 
 [profile.release]
 codegen-units = 1 # better optimizations
