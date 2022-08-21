@@ -8,4 +8,5 @@ anyhow = "^1.0.60"
 tokio = { version = "^1.20.1", features = ["full"] }
 tokio-stream = "^0.1.9"
 #futures = "^0.3.21"
-vhl_stdlib = { path = "../vhl_stdlib" }
+vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }
+vhl_cg = { path = "../vhl_cg" }

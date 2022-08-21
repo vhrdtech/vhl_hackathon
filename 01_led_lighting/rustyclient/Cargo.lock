@@ -169,7 +169,8 @@ dependencies = [
  "anyhow",
  "tokio",
  "tokio-stream",
- "vhl_stdlib",
+ "vhl-stdlib",
+ "vhl_cg",
 ]
 
 [[package]]
@@ -264,8 +265,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c4f5b37a154999a8f3f98cc23a628d850e154479cd94decf3414696e12e31aaf"
 
 [[package]]
-name = "vhl_stdlib"
+name = "vhl-stdlib"
 version = "0.1.0"
+
+[[package]]
+name = "vhl_cg"
+version = "0.1.0"
+dependencies = [
+ "vhl-stdlib",
+]
 
 [[package]]
 name = "wasi"
