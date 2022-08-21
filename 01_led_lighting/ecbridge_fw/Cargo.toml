@@ -34,6 +34,7 @@ ssd1306 = "0.7.0"
 embedded-graphics = "0.7.1"
 #uavcan-llr = { features = ["vhrdcan"], git = "https://github.com/vhrdtech/uavcan-llr.git" }
 vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }
+vhl_cg = { path = "../vhl_cg" }
 
 [features]
 proto-ipv6 = ["smoltcp/proto-ipv6"]

@@ -8,10 +8,7 @@ mod xpi_dispatch;
 mod oled;
 mod vt100;
 mod logging;
-
-
-// use panic_rtt_target as _;
-use rtt_target::rprintln;
+mod generated_goal;
 
 pub const CORE_FREQ: u32 = 200_000_000;
 
@@ -47,10 +44,12 @@ mod app {
     #[local]
     struct LocalResources {
         net: ethernet::Net<'static>,
-        eth_out_prod: bbqueue::Producer<'static, 512>,
+        eth_in_cons: bbqueue::Consumer<'static, 512>, // eth irq: take & tx
+        eth_out_prod: bbqueue::Producer<'static, 512>, // eth irq: rx & put
         lan8742a: ethernet::Lan8742A,
 
-        eth_out_cons: bbqueue::Consumer<'static, 512>,
+        eth_out_cons: bbqueue::Consumer<'static, 512>, // dispatcher: take
+        eth_in_prod: bbqueue::Producer<'static, 512>, // dispatcher: put
 
         led_link: gpio::gpioe::PE10<gpio::Output<gpio::PushPull>>,
         led_act: gpio::gpioe::PE11<gpio::Output<gpio::PushPull>>,
@@ -58,7 +57,10 @@ mod app {
         display: oled::DisplayTy,
     }
 
-    #[init(local = [eth_out_bb: BBBuffer<512> = BBBuffer::new()])]
+    #[init(local = [
+        eth_out_bb: BBBuffer<512> = BBBuffer::new(),
+        eth_in_bb: BBBuffer<512> = BBBuffer::new(),
+    ])]
     fn init(
         mut ctx: init::Context,
     ) -> (SharedResources, LocalResources, init::Monotonics) {
@@ -167,6 +169,7 @@ mod app {
 
         // Create queues
         let (eth_out_prod, eth_out_cons) = ctx.local.eth_out_bb.try_split().unwrap();
+        let (eth_in_prod, eth_in_cons) = ctx.local.eth_in_bb.try_split().unwrap();
 
         // Spawn tasks
         // blinky::spawn_after(1u64.secs()).unwrap();
@@ -180,10 +183,12 @@ mod app {
             },
             LocalResources {
                 net,
+                eth_in_cons,
                 eth_out_prod,
                 lan8742a,
 
                 eth_out_cons,
+                eth_in_prod,
 
                 display,
                 led_link,
@@ -222,10 +227,10 @@ mod app {
 
     extern "Rust" {
         // Challenge - how to assemble all the resources names automatically?
-        #[task(binds = ETH, priority = 2, local = [net, led_act, eth_out_prod])]
+        #[task(binds = ETH, priority = 2, local = [net, eth_in_cons, eth_out_prod, led_act])]
         fn ethernet_event(_: ethernet_event::Context);
 
-        #[task(shared = [symbol], local = [eth_out_cons])]
+        #[task(shared = [symbol], local = [eth_out_cons, eth_in_prod])]
         fn link_process(_: link_process::Context);
 
         #[task(local = [display], shared = [symbol, digit])]
@@ -283,4 +288,12 @@ fn sync_2(a: u8, b: u8) -> u8 {
     log_trace!(=>3, "sync_fn_2({}, {}) called", a, b);
 
     a - b
+}
+
+use vhl_cg::point::Point;
+fn sync_3(p1: Point, p2: Point) -> Point {
+    Point {
+        x: p1.x + p2.x,
+        y: p1.y + p2.y
+    }
 }

@@ -1,0 +1,7 @@
+[package]
+name = "vhl_cg"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }

@@ -222,6 +222,7 @@ dependencies = [
  "ssmarshal",
  "stm32h7xx-hal",
  "vhl-stdlib",
+ "vhl_cg",
 ]
 
 [[package]]
@@ -697,6 +698,13 @@ checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 [[package]]
 name = "vhl-stdlib"
 version = "0.1.0"
+
+[[package]]
+name = "vhl_cg"
+version = "0.1.0"
+dependencies = [
+ "vhl-stdlib",
+]
 
 [[package]]
 name = "void"
