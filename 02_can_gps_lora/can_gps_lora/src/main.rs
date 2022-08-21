@@ -7,7 +7,8 @@ mod util;
 mod lora;
 mod oled_color_ssd1331;
 
-use panic_rtt_target as _;
+use cortex_m::asm::delay;
+// use panic_rtt_target as _;
 
 #[rtic::app(device = stm32l4xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2])]
 mod app {
@@ -342,19 +343,18 @@ mod app {
         )
     }
 
-    #[idle(shared = [local_heartbeat, remote_heartbeat, tx_flag], local = [rtt_down, tx, lora, led_green])]
+    #[idle(shared = [local_heartbeat, remote_heartbeat, tx_flag], local = [rtt_down, tx, lora])]
     fn idle(mut cx: idle::Context) -> ! {
         rprintln!("idle entered");
         let radio = cx.local.lora;
         // let rx = cx.resources.rx_cons;
         let tx = cx.local.tx;
-        let led_green: &mut Pin<Output<PushPull>, H8, 'A', 10> = cx.local.led_green;
 
         let rtt_down: &mut DownChannel = cx.local.rtt_down;
         let mut buf = [0u8; 64];
         let mut counter = 0;
         loop {
-            led_green.toggle();
+            // led_green.toggle();
 
             rprintln!("idle");
             let tx_flag = cx.shared.tx_flag.lock(|flag| {
@@ -388,7 +388,7 @@ mod app {
             //     block!(tx.write(b)).unwrap();
             // }
             // block!(tx.write('x' as u8)).unwrap();
-            cortex_m::asm::delay(1_000_000);
+            // cortex_m::asm::delay(1_000_000);
             rprint!(=> 2, ".");
             counter += 1;
             if counter == 50 {
@@ -410,6 +410,9 @@ mod app {
         let pps_input: &mut Pin<Input<Floating>, H8, 'B', 14> = cx.local.pps_input;
         pps_input.clear_interrupt_pending_bit();
 
+        led_task::spawn(true);
+        led_task::spawn_after(100u64.millis(), false);
+
 
         #[cfg(feature = "oled_bw_ssd1306")]
         let r = phase_shift_tx::spawn_after(500_u64.millis());
@@ -424,6 +427,16 @@ mod app {
     #[task(priority = 2, shared = [tx_flag])]
     fn phase_shift_tx(mut cx: phase_shift_tx::Context) {
         cx.shared.tx_flag.lock(|flag| *flag = true);
+    }
+
+    #[task(capacity = 2, local = [led_green])]
+    fn led_task(cx: led_task::Context, enable: bool) {
+        let led_green: &mut Pin<Output<PushPull>, H8, 'A', 10> = cx.local.led_green;
+        if enable {
+            led_green.set_low();
+        } else {
+            led_green.set_high();
+        }
     }
 
     #[task(priority = 3, binds = LPUART1, local = [rx])]
@@ -457,6 +470,45 @@ mod app {
         fn oled_ssd1331_task(_: oled_ssd1331_task::Context);
     }
 
+}
+
+#[inline(never)]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use cortex_m::interrupt;
+    // use rtt_target::{UpChannel, ChannelMode};
+    use core::sync::atomic::compiler_fence;
+    use core::sync::atomic::Ordering::SeqCst;
+
+    interrupt::disable();
+
+    // if let Some(mut channel) = unsafe { UpChannel::conjure(0) } {
+    //     channel.set_mode(ChannelMode::BlockIfFull);
+    //
+    //     writeln!(channel, "{}", info).ok();
+    // }
+
+    for i in 0..8 {
+        rprintln!(=>i, "{}", info);
+    }
+
+    use stm32l4xx_hal::prelude::*;
+    let p = unsafe {stm32l4xx_hal::stm32::Peripherals::steal() };
+    let mut rcc = p.RCC.constrain();
+    let mut gpioa = p.GPIOA.split(&mut rcc.ahb2);
+    let mut gpiob = p.GPIOB.split(&mut rcc.ahb2);
+    let mut led_red = gpiob.pb2.into_push_pull_output(&mut gpiob.moder, &mut gpiob.otyper);
+    let mut led_green = gpioa.pa10.into_push_pull_output(&mut gpioa.moder, &mut gpioa.otyper);
+    led_red.set_high();
+    led_green.set_high();
+
+    loop {
+        led_red.set_low();
+        delay(10_000_000);
+        led_red.set_high();
+        delay(10_000_000);
+        compiler_fence(SeqCst);
+    }
 }
 
 use cortex_m_rt::exception;
