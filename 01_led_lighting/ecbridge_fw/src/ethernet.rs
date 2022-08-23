@@ -12,6 +12,7 @@ use stm32h7xx_hal::{ethernet as ethernet_h7, stm32};
 use stm32h7xx_hal::ethernet::PinsRMII;
 use stm32h7xx_hal::rcc::{CoreClocks, rec};
 use serde::{Serialize, Deserialize};
+use crate::{log_error, log_trace};
 
 /// Locally administered MAC address
 pub const MAC_ADDRESS: [u8; 6] = [0x02, 0x00, 0x11, 0x22, 0x33, 0x44];
@@ -174,6 +175,7 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
 
     let tcp_handle = ctx.local.net.tcp_handle;
     let eth_out_prod: &mut bbqueue::Producer<512> = ctx.local.eth_out_prod;
+    let eth_in_cons: &mut bbqueue::Consumer<512> = ctx.local.eth_in_cons;
 
     for i in 0..10 {
         let time = crate::app::monotonics::now().duration_since_epoch().to_millis();
@@ -233,6 +235,22 @@ pub fn ethernet_event(ctx: crate::app::ethernet_event::Context) {
                 Err(e) => {
                     rprintln!("tcp_socket: recv: {:?}", e);
                 }
+            }
+        }
+        if tcp_socket.can_send() {
+            match eth_in_cons.read() {
+                Ok(rgr) => {
+                    match tcp_socket.send_slice(&rgr) {
+                        Ok(written) => {
+                            rgr.release(written);
+                            log_trace!("Written {} to tcp_socket", written);
+                        }
+                        Err(e) => {
+                            log_error!("tcp_socket write err: {:?}", e);
+                        }
+                    }
+                }
+                Err(_) => {}
             }
         }
     }

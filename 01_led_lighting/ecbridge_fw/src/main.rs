@@ -2,6 +2,11 @@
 #![no_main]
 #![no_std]
 
+// TODO: remove, only for dev to see important warnings like unused results
+// #![allow(unused_variables)]
+#![allow(unused_imports)]
+// #![allow(dead_code)]
+
 mod ethernet;
 mod vhlink;
 mod xpi_dispatch;
@@ -148,6 +153,8 @@ mod app {
 
         // OLED
         let mut oled_pwr_dis = gpiod.pd15.into_push_pull_output();
+        oled_pwr_dis.set_high();
+        delay.delay_ms(5_u32); // garbage even with reset, rare
         oled_pwr_dis.set_low();
 
         let oled_scl = gpiod.pd12.into_alternate().set_open_drain();
