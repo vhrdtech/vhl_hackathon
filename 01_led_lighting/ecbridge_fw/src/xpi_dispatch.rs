@@ -71,10 +71,10 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
 
             let mut eth_wgr = eth_in_prod.grant_exact(REPLY_MTU).unwrap();
             let mut wrr  = NibbleBufMut::new_all(&mut eth_wgr);
-            wrr.skip(8);
-            wrr.put(NodeSet::Unicast(req.source));
-            wrr.put(req.resource_set);
-            let mut wrr = wrr.put_slice_array();
+            wrr.skip(8).unwrap();
+            // wrr.put(&NodeSet::Unicast(req.source)).unwrap();
+            wrr.put(&req.resource_set).unwrap();
+            let mut wrr = wrr.put_vec::<Result<&[u8], FailReason>>();
             let mut args_set_iter = args_set.iter();
             for uri in resource_set_process {
                 match args_set_iter.next() {
@@ -85,19 +85,16 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
                         // in either case, no excessive copies or anything.
                         // need to know result_len already from DryRun
                         let result_len = dispatch_call(uri.clone(), DispatchCallType::DryRun).unwrap();
-                        match wrr.put_exact_or_rewind::<FailReason, _>(1 + result_len, |result| {
-                            result[0] = 0;
-                            dispatch_call(uri.clone(), DispatchCallType::RealRun { args, result: &mut result[1..] } )?;
-                            Ok(())
-                        }).unwrap() {
-                            Ok(_) => {},
-                            Err(e) => {
-                                log_error!(=>T, "dispatch error: {:?}", e);
-                                let error_code = [e.to_u32() as u8]; // TODO: make it proper
-                                wrr.put_slice(&error_code);
-                            }
-                        }
 
+                        wrr.put_result_with_slice_from(result_len + 1, |result| {
+                            dispatch_call(
+                                uri.clone(),
+                                DispatchCallType::RealRun { args, result: &mut result[1..] }
+                            ).map(|_| ()).map_err(|e| {
+                                log_error!(=>T, "dispatch error: {:?}", e);
+                                e
+                            })
+                        }).unwrap();
                     }
                     None => {
                         log_error!(=>T, "No args provided for {}", uri);
@@ -105,26 +102,29 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
                 }
             }
             let mut wrr = wrr.finish().unwrap();
-            wrr.put(req.request_id);
+            wrr.put(&req.request_id).unwrap();
+            log_trace!(=>T, "before rewind {}", wrr);
             wrr.rewind::<_, FailReason>(0, |wrr| {
                 wrr.as_bit_buf::<FailReason, _>(|wrr| {
                     wrr.put_up_to_8(3, 0b000)?; // unused 31:29
-                    wrr.put(req.priority)?; // bits 28:26
+                    wrr.put(&req.priority)?; // bits 28:26
                     wrr.put_bit(true)?; // bit 25, is_unicast
                     wrr.put_bit(false)?; // bit 24, is_request
                     wrr.put_bit(true)?; // bit 23, reserved
-                    wrr.put(self_node_id)?; // bits 22:16
+                    wrr.put(&self_node_id)?; // bits 22:16
                     wrr.put_up_to_8(2, 0b00)?; // bits 15:7 - discriminant of NodeSet (2b) + 7b for NodeId or other
                     wrr.put_up_to_8(7, 0b0101010)?;
-                    wrr.put(req.resource_set)?; // bits 6:4 - discriminant of ResourceSet+Uri
+                    wrr.put(&req.resource_set)?; // bits 6:4 - discriminant of ResourceSet+Uri
                     wrr.put_up_to_8(4, 0b0000)?; // bits 3:0 - discriminant of XpiReplyKind
                     Ok(())
                 })?;
                 Ok(())
-            });
+            }).unwrap();
 
 
+            log_trace!(=>T, "XpiReply {}", wrr);
             let (_, len, _) = wrr.finish();
+            log_trace!(=>T, "commit {}", len);
             eth_wgr.commit(len);
             rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH);
 
