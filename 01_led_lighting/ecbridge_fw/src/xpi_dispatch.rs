@@ -91,10 +91,10 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
                             // need to know result_len already from DryRun
                             let result_len = dispatch_call(uri.clone(), DispatchCallType::DryRun).unwrap();
 
-                            vb.put_result_with_slice_from(result_len + 1, |result| {
+                            vb.put_result_with_slice_from(result_len, |result| {
                                 dispatch_call(
                                     uri.clone(),
-                                    DispatchCallType::RealRun { args, result: &mut result[1..] }
+                                    DispatchCallType::RealRun { args, result }
                                 ).map(|_| ()).map_err(|e| {
                                     log_error!(=>T, "dispatch error: {:?}", e);
                                     e
