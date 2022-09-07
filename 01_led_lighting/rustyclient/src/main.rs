@@ -84,12 +84,12 @@ async fn main() -> Result<()> {
             wgr.put(&Point { x: 5, y: 7 })?;
             Ok(())
         })?;
-        vb.put_aligned_with::<BufError, _>(8, |slice| {
-            let mut wgr = BufMut::new(slice);
-            wgr.put(&Point { x: 5, y: 3 })?;
-            wgr.put(&Point { x: 6, y: 4 })?;
-            Ok(())
-        })?;
+        // vb.put_aligned_with::<BufError, _>(8, |slice| {
+        //     let mut wgr = BufMut::new(slice);
+        //     wgr.put(&Point { x: 5, y: 3 })?;
+        //     wgr.put(&Point { x: 6, y: 4 })?;
+        //     Ok(())
+        // })?;
 
         let nwr = vb.finish()?;
         Ok((XpiRequestKindKind::Call, nwr))
@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
     tx.write_all(&buf[0..byte_pos]).await?;
 
     let mut buf = Vec::new();
-    buf.resize(19, 0);
+    buf.resize(15, 0);
     let reply_size = rx.read_exact(&mut buf).await?;
     println!("Read {}: {:2x?}", reply_size, buf);
     let mut rdr = NibbleBuf::new_all(&buf[0..reply_size]);
