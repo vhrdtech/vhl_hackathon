@@ -103,6 +103,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
                         }
                         None => {
                             log_error!(=>T, "No args provided for {}", uri);
+                            vb.put_result_with_slice(Err(FailReason::NoArgumentsProvided)).unwrap();
                         }
                     }
                 }

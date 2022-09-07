@@ -1,8 +1,8 @@
 struct Point {
     x: u16,
-    y: u16
+    y: u16,
 }
-
+/*
 /main {
     /// Should be initialized on the node and passed to the dispatcher
     /constant<const u8, '0>
@@ -20,4 +20,4 @@ struct Point {
     /sync_2< fn(a: u8, b: u8) -> u8, '4>
 
     /sync_3< fn(p1: Point, p2: Point) -> Point, '5>
-}
+}*/

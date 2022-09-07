@@ -1,5 +1,6 @@
 [target.thumbv7em-none-eabihf]
 runner = "jlink-flasher"
+#runner = "probe-run --chip STM32H743VIT"
 
 rustflags = [
     # This is needed if your flash or ram addresses are not aligned to 0x10000 in memory.x
