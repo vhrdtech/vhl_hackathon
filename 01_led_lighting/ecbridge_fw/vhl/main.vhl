@@ -1,23 +1,27 @@
-struct Point {
+/*struct Point {
     x: u16,
     y: u16,
-}
-/*
+}*/
+
+#[serdes = vhbytes]
 /main {
     /// Should be initialized on the node and passed to the dispatcher
-    /constant<const u8, '0>
+    /constant<const u8, #0>
 
-    /// Should go to local resources in rtic
-    /symbol<rw char, '1>
+    // Should go to local resources in rtic
+    #[dispatch(rtic_shared(symbol))]
+    /symbol<rw char, #1>
 
-    /// Should spawn a task
-    /set_digit< fn(digit: u8), '2>
+    // Should spawn a task
+    #[dispatch = rtic(crate::app::set_digit)]
+    /set_digit< fn(digit: u8), #2>
 
-    /// Should be called directly from dispatcher
-    /sync< fn(a: u8, b: u8) -> u8, '3>
+    // Should be called directly from dispatcher
+    #[dispatch = sync(crate::sync)]
+    /sync< fn(p1: Point, p2: Point) -> Point, #5>
 
-    /// Should be called directly from dispatcher
-    /sync_2< fn(a: u8, b: u8) -> u8, '4>
-
-    /sync_3< fn(p1: Point, p2: Point) -> Point, '5>
-}*/
+    // Should be spawned through rtic and result sent asynchronously later
+    // Pass ReturnToken to it with u32 or u64 counter inside to match req/rep even if lower bit id is used
+    // #[dispatch(rtic_defer(crate::app::task_with_return))]
+    // /async_spawn< fn(p1: Point, p2: Point) -> Point, #6>
+}

@@ -1,14 +1,17 @@
 use rtt_target::{rprintln};
 use vhl_cg::point::Point;
 use vhl_stdlib::serdes::buf::{Buf, BufMut};
-use vhl_stdlib::serdes::xpi_vlu4::{NodeId, UriIter};
-use vhl_stdlib::serdes::xpi_vlu4::request::{XpiRequest, XpiRequestKind};
+use vhl_stdlib::serdes::xpi_vlu4::{NodeId, UriIter, XpiEventVlu4};
 use crate::{log_error, log_info, log_trace, log_warn};
 use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::NibbleBufMut;
 use vhl_stdlib::serdes::xpi_vlu4::addressing::NodeSet;
 use vhl_stdlib::serdes::xpi_vlu4::error::FailReason;
-use vhl_stdlib::serdes::xpi_vlu4::reply::{XpiReply, XpiReplyBuilder, XpiReplyKind, XpiReplyKindKind};
+use vhl_stdlib::serdes::xpi_vlu4::event::XpiEventKindVlu4;
+use vhl_stdlib::serdes::xpi_vlu4::reply::XpiReplyVlu4Builder;
+use vhl_stdlib::serdes::xpi_vlu4::request::{XpiRequestKindVlu4, XpiRequestVlu4};
+use vhl_stdlib::xpi::event::XpiGenericEventKind;
+use vhl_stdlib::xpi::reply::XpiReplyDiscriminant;
 
 pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
 
@@ -33,8 +36,8 @@ const T: u8 = 2;
 // task can run without waiting
 //
 // Also need ability to send XpiReply(-s) back to the link from dispatcher
-pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
-    rprintln!(=>T, "{}", req);
+pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &XpiEventVlu4) {
+    // rprintln!(=>T, "{}", ev);
 
     let self_node_id = NodeId::new(85).unwrap();
     let eth_in_prod: &mut bbqueue::Producer<512> = ctx.local.eth_in_prod;
@@ -55,95 +58,106 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, req: &XpiRequest) {
     //     }
     // }
 
-    match req.kind {
-        XpiRequestKind::Call { args_set } => {
-            // 1. scan over resources set
-            // 2. decide which calls to batch into one reply based on maximum reply len and max len of each call result
-            // 2a. batch only consecutive calls into one reply to make things simpler
-            // 3. create XpiReplyBuilder and serialize resource subset into it
-            // 4. advance builder to args_set state and dispatch every call
-            // 5. finish serializing, submit reply
-            // 6. repeat until all calls are processed or no more space for replies available
-            // let mut resource_set_lookahead = req.resource_set.flat_iter();
-            // let mut resource_set_process = req.resource_set.flat_iter();
-            // let mut batch_amount = 0;
-            const REPLY_MTU: usize = 64;
+    match &ev.kind {
+        XpiGenericEventKind::Request(req) => {
+            rprintln!(=>T, "{}", req);
+            match req.kind {
+                XpiRequestKindVlu4::Call { args_set } => {
+                    // 1. scan over resources set
+                    // 2. decide which calls to batch into one reply based on maximum reply len and max len of each call result
+                    // 2a. batch only consecutive calls into one reply to make things simpler
+                    // 3. create XpiReplyBuilder and serialize resource subset into it
+                    // 4. advance builder to args_set state and dispatch every call
+                    // 5. finish serializing, submit reply
+                    // 6. repeat until all calls are processed or no more space for replies available
+                    // let mut resource_set_lookahead = req.resource_set.flat_iter();
+                    // let mut resource_set_process = req.resource_set.flat_iter();
+                    // let mut batch_amount = 0;
+                    const REPLY_MTU: usize = 64;
 
-            let mut eth_wgr = eth_in_prod.grant_exact(REPLY_MTU).unwrap();
-            let reply_builder = XpiReplyBuilder::new(
-                NibbleBufMut::new_all(&mut eth_wgr),
-                self_node_id,
-                NodeSet::Unicast(req.source),
-                req.resource_set,
-                req.request_id,
-                req.priority
-            ).unwrap();
-            let nwr = reply_builder.build_kind_with(|nwr| {
-                let mut vb = nwr.put_vec::<Result<&[u8], FailReason>>();
-                let mut args_set_iter = args_set.iter();
-                for uri in req.resource_set.flat_iter() {
-                    match args_set_iter.next() {
-                        Some(args) => {
-                            // Speculatively assume error code = 0 (1 nibble, success) and try to dispatch
-                            // a call. If it actually succeeds => great, otherwise step back and write an
-                            // error code instead (which can take more than 1 nibble). There are no penalties
-                            // in either case, no excessive copies or anything.
-                            // need to know result_len already from DryRun
-                            let result_len = dispatch_call(uri.clone(), DispatchCallType::DryRun).unwrap();
+                    let mut eth_wgr = eth_in_prod.grant_exact(REPLY_MTU).unwrap();
+                    let reply_builder = XpiReplyVlu4Builder::new(
+                        NibbleBufMut::new_all(&mut eth_wgr),
+                        self_node_id,
+                        NodeSet::Unicast(ev.source),
+                        req.resource_set.clone(),
+                        req.request_id,
+                        ev.priority
+                    ).unwrap();
+                    let nwr = reply_builder.build_kind_with(|nwr| {
+                        let mut vb = nwr.put_vec::<Result<&[u8], FailReason>>();
+                        let mut args_set_iter = args_set.iter();
+                        for uri in req.resource_set.flat_iter() {
+                            match args_set_iter.next() {
+                                Some(args) => {
+                                    // Speculatively assume error code = 0 (1 nibble, success) and try to dispatch
+                                    // a call. If it actually succeeds => great, otherwise step back and write an
+                                    // error code instead (which can take more than 1 nibble). There are no penalties
+                                    // in either case, no excessive copies or anything.
+                                    // need to know result_len already from DryRun -- won't work with variable len return types(:
+                                    // speculatively write len(rest of the buffer), then dispatch and re-write the size, possible sending some 0s
+                                    // or copy will be required to properly shift the data (from the separate buffer or the same)
+                                    let result_len = dispatch_call(uri.clone(), DispatchCallType::DryRun).unwrap();
 
-                            vb.put_result_with_slice_from(result_len, |result| {
-                                dispatch_call(
-                                    uri.clone(),
-                                    DispatchCallType::RealRun { args, result }
-                                ).map(|_| ()).map_err(|e| {
-                                    log_error!(=>T, "dispatch error: {:?}", e);
-                                    e
-                                })
-                            }).unwrap();
+                                    vb.put_result_with_slice_from(result_len, |result| {
+                                        dispatch_call(
+                                            uri.clone(),
+                                            DispatchCallType::RealRun { args, result }
+                                        ).map(|_| ()).map_err(|e| {
+                                            log_error!(=>T, "dispatch error: {:?}", e);
+                                            e
+                                        })
+                                    }).unwrap();
+                                }
+                                None => {
+                                    log_error!(=>T, "No args provided for {}", uri);
+                                    vb.put_result_with_slice(Err(FailReason::NoArgumentsProvided)).unwrap();
+                                }
+                            }
                         }
-                        None => {
-                            log_error!(=>T, "No args provided for {}", uri);
-                            vb.put_result_with_slice(Err(FailReason::NoArgumentsProvided)).unwrap();
-                        }
-                    }
+                        let nwr = vb.finish()?;
+                        Ok((XpiReplyDiscriminant::CallComplete, nwr))
+                    }).unwrap();
+
+                    log_trace!(=>T, "XpiReply {}", nwr);
+                    let (_, len, _) = nwr.finish();
+                    log_trace!(=>T, "commit {}", len);
+                    eth_wgr.commit(len);
+                    rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH);
+
+
+                    // let mut args_set_iter = args_set.iter();
+                    // for uri in req.resource_set.flat_iter() {
+                    //     match args_set_iter.next() {
+                    //         Some(args) => {
+                    //             let r = dispatch_call(uri, DispatchCallType::RealRun { args, result: &mut[] } );
+                    //             if r.is_err() {
+                    //                 log_error!(=>T, "dispatch error: {:?}", r);
+                    //             }
+                    //         }
+                    //         None => {
+                    //             log_error!(=>T, "No args provided for {}", uri);
+                    //         }
+                    //     }
+                    // }
                 }
-                let nwr = vb.finish()?;
-                Ok((XpiReplyKindKind::CallComplete, nwr))
-            }).unwrap();
-
-            log_trace!(=>T, "XpiReply {}", nwr);
-            let (_, len, _) = nwr.finish();
-            log_trace!(=>T, "commit {}", len);
-            eth_wgr.commit(len);
-            rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH);
-
-
-            // let mut args_set_iter = args_set.iter();
-            // for uri in req.resource_set.flat_iter() {
-            //     match args_set_iter.next() {
-            //         Some(args) => {
-            //             let r = dispatch_call(uri, DispatchCallType::RealRun { args, result: &mut[] } );
-            //             if r.is_err() {
-            //                 log_error!(=>T, "dispatch error: {:?}", r);
-            //             }
-            //         }
-            //         None => {
-            //             log_error!(=>T, "No args provided for {}", uri);
-            //         }
-            //     }
-            // }
+                XpiRequestKindVlu4::ChainCall { .. } => {}
+                XpiRequestKindVlu4::Read => {}
+                XpiRequestKindVlu4::Write { .. } => {}
+                XpiRequestKindVlu4::OpenStreams => {}
+                XpiRequestKindVlu4::CloseStreams => {}
+                XpiRequestKindVlu4::Subscribe { .. } => {}
+                XpiRequestKindVlu4::Unsubscribe => {}
+                XpiRequestKindVlu4::Borrow => {}
+                XpiRequestKindVlu4::Release => {}
+                XpiRequestKindVlu4::Introspect => {}
+            }
         }
-        XpiRequestKind::ChainCall { .. } => {}
-        XpiRequestKind::Read => {}
-        XpiRequestKind::Write { .. } => {}
-        XpiRequestKind::OpenStreams => {}
-        XpiRequestKind::CloseStreams => {}
-        XpiRequestKind::Subscribe { .. } => {}
-        XpiRequestKind::Unsubscribe => {}
-        XpiRequestKind::Borrow => {}
-        XpiRequestKind::Release => {}
-        XpiRequestKind::Introspect => {}
+        XpiGenericEventKind::Reply(_) => {}
+        XpiGenericEventKind::Broadcast(_) => {}
+        XpiGenericEventKind::Forward(_) => {}
     }
+
 
     // match req.kind {
     //     XpiRequestKind::Call { args } => {
@@ -235,37 +249,19 @@ fn dispatch_call(mut uri: UriIter, call_type: DispatchCallType) -> Result<usize,
         }
     };
     match at_root_level {
-        0 | 1 | 2 => {
+        0 | 1 => {
             log_error!(=>T, "Resource /{} is not a method", at_root_level);
             Err(FailReason::NotAMethod)
         }
-        3 => {
-            // /sync< fn(a: u8, b: u8) -> u8, '3>
-            // TODO: Need to be a proper Buf deserializing into expected types + error handling
+        2 => {
             match call_type {
-                DryRun => Ok(1),
-                RealRun { args, result } => {
+                DryRun => Ok(0),
+                RealRun { args, .. } => {
                     let a = args[0];
-                    let b = args[1];
-                    let r = crate::sync(a, b);
-                    log_trace!(=>T, "Called /sync({}, {}) = {}", a, b, r);
-                    result[0] = r;
-                    Ok(1)
-                }
-            }
-        }
-        4 => {
-            match call_type {
-                DryRun => Ok(1),
-                RealRun { args, result} => {
-                    // /sync< fn(a: u8, b: u8) -> u8, '3>
-                    // TODO: Need to be a proper Buf deserializing into expected types + error handling
-                    let a = args[0];
-                    let b = args[1];
-                    let r = crate::sync_2(a, b);
-                    log_trace!(=>T, "Called /sync_2({}, {}) = {}", a, b, r);
-                    result[0] = r;
-                    Ok(1)
+                    let spawn_r = crate::app::set_digit::spawn(a);
+                    log_trace!(=>T, "Spawning /set_digit({}) {:?}", a, spawn_r);
+
+                    Ok(0)
                 }
             }
         }
