@@ -1,26 +1,32 @@
 #![allow(unused_imports)]
-#![allow(unused_variables)]
+// #![allow(unused_variables)]
 
+use std::collections::HashMap;
 use std::env;
-use std::net::SocketAddr;
+use std::net::{AddrParseError, SocketAddr};
+use std::sync::{Arc, RwLock, TryLockResult};
+use std::time::Duration;
+
 use anyhow::{Context, Result};
-use tokio::net::{TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use thiserror::Error;
+
 use vhl_cg::point::Point;
-use vhl_stdlib::discrete::{U2Sp1, U4};
-use vhl_stdlib::serdes::{NibbleBuf, NibbleBufMut};
+
+use vhl_stdlib::discrete::{U2, U4};
+use vhl_stdlib::serdes::{Buf, NibbleBuf, NibbleBufMut};
 use vhl_stdlib::serdes::buf::BufMut;
 use vhl_stdlib::serdes::traits::SerializeBytes;
-use vhl_stdlib::serdes::xpi_vlu4::addressing::{NodeSet, RequestId, XpiResourceSet};
-use vhl_stdlib::serdes::xpi_vlu4::{MultiUri, NodeId, Uri};
-use vhl_stdlib::serdes::xpi_vlu4::priority::Priority;
-use vhl_stdlib::serdes::xpi_vlu4::request::{XpiRequest, XpiRequestBuilder, XpiRequestKind, XpiRequestKindKind};
-
 use vhl_stdlib::serdes::nibble_buf::Error as NibbleBufError;
 use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::bit_buf::Error as BitBufError;
 use vhl_stdlib::serdes::vlu4::{Vlu4Vec, Vlu4VecBuilder};
-use vhl_stdlib::serdes::xpi_vlu4::reply::XpiReply;
+use xpi::error::XpiError;
+use xpi::event::XpiGenericEventKind;
+
+use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, Request, Reply, NodeId, Event, RequestKind, EventKind, SerialUri, ResourceInfo};
+use xpi::reply::XpiGenericReplyKind;
+use xpi_node::node::async_std::{VhNode, NodeError};
+use xpi_node::node::addressing::RemoteNodeAddr;
 
 #[derive(Debug)]
 enum MyError {
@@ -47,75 +53,151 @@ impl From<BitBufError> for MyError {
     }
 }
 
+// to be cg-d
+struct ECBridgeClient {
+    node: VhNode
+}
+
+impl ECBridgeClient {
+    pub async fn new(local_id: NodeId) -> Self {
+        Self {
+            node: VhNode::new_client(local_id).await
+        }
+    }
+
+    pub async fn connect_remote(&mut self, addr: RemoteNodeAddr) -> Result<(), NodeError> {
+        self.node.connect_remote(addr).await
+    }
+
+    pub async fn sync(&mut self, p1: Point, p2: Point) -> Result<Point, NodeError> {
+        let mut args = Vec::new();
+        args.resize(8, 0);
+        let mut wr = BufMut::new(&mut args);
+        let _ = wr.put(&p1);
+        let _ = wr.put(&p2);
+        let (_, _) = wr.finish();
+
+        let req = Request {
+            resource_set: ResourceSet::Uri(SerialUri::new("/5")),
+            kind: RequestKind::Call {
+                args_set: vec![args]
+            },
+            request_id: RequestId(0),
+        };
+        let ev = Event::new(
+            NodeId(10),
+            NodeSet::Unicast(NodeId(11)),
+            EventKind::Request(req),
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let reply = self.node.filter_one(()).await?;
+        println!("Got reply! {:?}", reply);
+        match reply.kind {
+            XpiGenericEventKind::Reply(rep) => {
+                match rep.kind {
+                    XpiGenericReplyKind::CallComplete(results) => {
+                        if results.len() != 1 {
+                            return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()));
+                        }
+                        match &results[0] {
+                            Ok(result) => {
+                                let mut rd = Buf::new(&result);
+                                let p: Point = rd.des_bytes().unwrap();
+                                Ok(p)
+                            }
+                            Err(e) => {
+                                Err(e.clone().into())
+                            }
+                        }
+                    }
+                    u => {
+                        Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())))
+                    }
+                }
+            }
+            u => {
+                Err(NodeError::ExpectedReply("todo".to_owned()))
+                // Err(NodeError::ExpectedReply(format!("{:?}", u)))
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-
-    let addr = "192.168.0.199:7777";
-    let addr = addr.parse::<SocketAddr>()
+    let addr = "tcp://192.168.0.199:7777";
+    let addr = RemoteNodeAddr::parse(addr)
         .context(format!("unable to parse socket address: '{}'", addr))?;
 
-    let num: u8 = args[1].parse()?;
+    // // Establish connection to another node with statically generated xPI
+    // // SemVer compatibility checks must pass before any requests can be sent
+    // let ecbridge_client = ECBridgeClient::connect(&mut client_node, ecbridge_node_id).await?;
+    let mut ecbridge_client = ECBridgeClient::new(NodeId(10)).await;
 
-    // let stream = tcp_socket.connect(addr).await?;
-    let mut stream = TcpStream::connect(addr).await?;
-    let (mut rx, mut tx) = stream.split();
+    // let mut local11 = VhNode::new_client(NodeId(11)).await;
+    // VhNode::connect_instances(&mut local10, &mut local11).await?;
 
-    let multi_uri: MultiUri = NibbleBuf::new_all(&[0x10, 0x52, 0x55]).des_vlu4().unwrap();
-    let resource_set = XpiResourceSet::MultiUri(multi_uri);
-    println!("{}", resource_set);
-    // let resource_set = XpiResourceSet::Uri(Uri::OnePart4(U4::new(5).unwrap())); // /sync
+    // let smth = local10.filter_one( () ).await;
+    // println!("filter one: {:?}", smth);
 
-    let mut buf = [0u8; 32];
-    let request_builder = XpiRequestBuilder::new(
-        NibbleBufMut::new_all(&mut buf),
-        NodeId::new(33).unwrap(),
-        NodeSet::Unicast(NodeId::new(44).unwrap()),
-        resource_set,
-        RequestId::new(27).unwrap(),
-        Priority::Lossy(U2Sp1::new(1).unwrap())
-    ).unwrap();
-    let nwr = request_builder.build_kind_with(|nwr| {
-        let mut vb = nwr.put_vec::<&[u8]>();
+    ecbridge_client.connect_remote(addr).await?;
 
-        vb.put_aligned_with::<BufError, _>(8, |slice| {
-            let mut wgr = BufMut::new(slice);
-            wgr.put(&Point { x: 10, y: 20 })?;
-            wgr.put(&Point { x: 5, y: 7 })?;
-            Ok(())
-        })?;
-        // vb.put_aligned_with::<BufError, _>(8, |slice| {
-        //     let mut wgr = BufMut::new(slice);
-        //     wgr.put(&Point { x: 5, y: 3 })?;
-        //     wgr.put(&Point { x: 6, y: 4 })?;
-        //     Ok(())
-        // })?;
 
-        let nwr = vb.finish()?;
-        Ok((XpiRequestKindKind::Call, nwr))
-    }).unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
 
-    let (buf, byte_pos, _) = nwr.finish();
 
-    // let mut nrd = NibbleBuf::new_all(&buf[0..byte_pos]);
-    // println!("{}", nrd);
-    // let req: XpiRequest = nrd.des_vlu4().unwrap();
-    // println!("{}", req);
+    let point = ecbridge_client.sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
+    println!("point: {:?}", point);
 
-    // let ecbridge_node = local_node.by_id(85);
-    // let p = ecbridge_node.sync_3(p1, p2).await; -> Result<Point, Error>
+    // Call /
+    // let symbol: char = ecbridge_node.symbol.read().await?;
+    // println!("{}", symbol);
 
-    // tx.write_all(wgr.finish()).await?;
-    println!("Send: {:2x?}", &buf[0..byte_pos]);
-    tx.write_all(&buf[0..byte_pos]).await?;
 
-    let mut buf = Vec::new();
-    buf.resize(15, 0);
-    let reply_size = rx.read_exact(&mut buf).await?;
-    println!("Read {}: {:2x?}", reply_size, buf);
-    let mut rdr = NibbleBuf::new_all(&buf[0..reply_size]);
-    let reply: XpiReply = rdr.des_vlu4().unwrap();
-    println!("{:?}", reply);
 
+    // let (mut rx, mut tx) = stream.split();
+    // //
+    // let multi_uri: MultiUri = NibbleBuf::new_all(&[0x10, 0x52, 0x55]).des_vlu4().unwrap();
+    // let resource_set = XpiResourceSet::MultiUri(multi_uri);
+    // println!("{}", resource_set);
+    //
+    // let mut buf = [0u8; 32];
+    // let request_builder = XpiRequestBuilder::new(
+    //     NibbleBufMut::new_all(&mut buf),
+    //     NodeId::new(33).unwrap(),
+    //     NodeSet::Unicast(NodeId::new(44).unwrap()),
+    //     resource_set,
+    //     RequestId::new(27).unwrap(),
+    //     Priority::Lossy(U2Sp1::new(1).unwrap())
+    // ).unwrap();
+    // let nwr = request_builder.build_kind_with(|nwr| {
+    //     let mut vb = nwr.put_vec::<&[u8]>();
+    //
+    //     vb.put_aligned_with::<BufError, _>(8, |slice| {
+    //         let mut wgr = BufMut::new(slice);
+    //         wgr.put(&Point { x: 10, y: 20 })?;
+    //         wgr.put(&Point { x: 5, y: 7 })?;
+    //         Ok(())
+    //     })?;
+    //
+    //     let nwr = vb.finish()?;
+    //     Ok((XpiRequestKindKind::Call, nwr))
+    // }).unwrap();
+    //
+    // let (buf, byte_pos, _) = nwr.finish();
+    //
+    // println!("Send: {:2x?}", &buf[0..byte_pos]);
+    // tx.write_all(&buf[0..byte_pos]).await?;
+    //
+    // let mut buf = Vec::new();
+    // buf.resize(15, 0);
+    // let reply_size = rx.read_exact(&mut buf).await?;
+    // println!("Read {}: {:2x?}", reply_size, buf);
+    // let mut rdr = NibbleBuf::new_all(&buf[0..reply_size]);
+    // let reply: XpiReply = rdr.des_vlu4().unwrap();
+    // println!("{:?}", reply);
+
+    tokio::time::sleep(Duration::from_secs(5)).await;
     Ok(())
 }

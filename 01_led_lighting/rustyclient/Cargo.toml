@@ -5,8 +5,14 @@ edition = "2021"
 
 [dependencies]
 anyhow = "^1.0.60"
+thiserror = "1.0.35"
+
 tokio = { version = "^1.20.1", features = ["full"] }
-tokio-stream = "^0.1.9"
-#futures = "^0.3.21"
+#tokio-stream = "^0.1.9"
+#futures = "0.3.24"
+
 vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }
+xpi = { path = "../../../vhl/vhl-stdlib/xpi-rust" }
+xpi-node = { path = "../../../vhl/vhl-stdlib/xpi-node-rust" }
+
 vhl_cg = { path = "../vhl_cg" }
