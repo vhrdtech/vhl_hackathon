@@ -7,7 +7,7 @@ use vhl_stdlib::serdes::NibbleBufMut;
 use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4VecIter};
 use xpi::event::XpiGenericEventKind;
 use xpi::reply::XpiReplyDiscriminant;
-use xpi::xwfd::{NodeId, SerialUriIter, NodeSet, EventKind, ReplyBuilder, XpiRequestKindVlu4};
+use xpi::xwfd::{NodeId, SerialUriIter, NodeSet, EventKind, ReplyBuilder, RequestKind};
 use xpi::error::XpiError;
 use xpi::xwfd;
 
@@ -35,7 +35,7 @@ const T: u8 = 2;
 //
 // Also need ability to send XpiReply(-s) back to the link from dispatcher
 pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
-    // rprintln!(=>T, "{}", ev);
+    rprintln!(=>T, "{}", ev);
 
     let self_node_id = NodeId::new(85).unwrap();
     let eth_in_prod: &mut bbqueue::Producer<512> = ctx.local.eth_in_prod;
@@ -60,7 +60,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
         XpiGenericEventKind::Request(req) => {
             rprintln!(=>T, "{}", req);
             match req.kind {
-                XpiRequestKindVlu4::Call { args_set } => {
+                RequestKind::Call { args_set } => {
                     // 1. scan over resources set
                     // 2. decide which calls to batch into one reply based on maximum reply len and max len of each call result
                     // 2a. batch only consecutive calls into one reply to make things simpler
@@ -139,16 +139,16 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
                     //     }
                     // }
                 }
-                XpiRequestKindVlu4::ChainCall { .. } => {}
-                XpiRequestKindVlu4::Read => {}
-                XpiRequestKindVlu4::Write { .. } => {}
-                XpiRequestKindVlu4::OpenStreams => {}
-                XpiRequestKindVlu4::CloseStreams => {}
-                XpiRequestKindVlu4::Subscribe { .. } => {}
-                XpiRequestKindVlu4::Unsubscribe => {}
-                XpiRequestKindVlu4::Borrow => {}
-                XpiRequestKindVlu4::Release => {}
-                XpiRequestKindVlu4::Introspect => {}
+                RequestKind::ChainCall { .. } => {}
+                RequestKind::Read => {}
+                RequestKind::Write { .. } => {}
+                RequestKind::OpenStreams => {}
+                RequestKind::CloseStreams => {}
+                RequestKind::Subscribe { .. } => {}
+                RequestKind::Unsubscribe => {}
+                RequestKind::Borrow => {}
+                RequestKind::Release => {}
+                RequestKind::Introspect => {}
             }
         }
         XpiGenericEventKind::Reply(_) => {}

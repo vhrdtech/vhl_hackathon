@@ -3,7 +3,7 @@ use rtt_target::rprintln;
 use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
 use vhl_stdlib::serdes::NibbleBuf;
-use xpi::xwfd::{XpiRequestVlu4, Event};
+use xpi::xwfd::{Request, Event};
 use xpi::event::XpiGenericEventKind;
 
 // ethernet / can irq task -> put data onto bbqueue?
@@ -26,14 +26,15 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
 
             let mut rdr = NibbleBuf::new_all(&buf);
 
-            let xpi_event: Event = match rdr.des_vlu4() {
-                Ok(req) => req,
+            let xpi_event: Result<Event, _> = rdr.des_vlu4();
+            match xpi_event {
+                Ok(ev) => {
+                    xpi_dispatch(&mut ctx, &ev);
+                },
                 Err(e) => {
-                    rprintln!("{:?}", e);
-                    return;
+                    rprintln!(=>1, "{:?}", e);
                 }
             };
-            xpi_dispatch(&mut ctx, &xpi_event);
 
             rgr.release(rgr_len);
         }
