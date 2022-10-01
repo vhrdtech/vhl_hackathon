@@ -33,7 +33,8 @@ ssmarshal = { version = "^1.0.0", default-features = false }
 ssd1306 = "0.7.0"
 embedded-graphics = "0.7.1"
 #uavcan-llr = { features = ["vhrdcan"], git = "https://github.com/vhrdtech/uavcan-llr.git" }
-vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust", default-features = false, features = ["buf-strict"] }
+vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust", features = ["no_std"] }
+xpi = { path = "../../../vhl/vhl-stdlib/xpi-rust", features = ["no_std"] }
 vhl_cg = { path = "../vhl_cg" }
 
 [features]

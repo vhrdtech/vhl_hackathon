@@ -1,17 +1,15 @@
 use rtt_target::{rprintln};
 use vhl_cg::point::Point;
 use vhl_stdlib::serdes::buf::{Buf, BufMut};
-use vhl_stdlib::serdes::xpi_vlu4::{NodeId, UriIter, XpiEventVlu4};
 use crate::{log_error, log_info, log_trace, log_warn};
 use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::NibbleBufMut;
-use vhl_stdlib::serdes::xpi_vlu4::addressing::NodeSet;
-use vhl_stdlib::serdes::xpi_vlu4::error::FailReason;
-use vhl_stdlib::serdes::xpi_vlu4::event::XpiEventKindVlu4;
-use vhl_stdlib::serdes::xpi_vlu4::reply::XpiReplyVlu4Builder;
-use vhl_stdlib::serdes::xpi_vlu4::request::{XpiRequestKindVlu4, XpiRequestVlu4};
-use vhl_stdlib::xpi::event::XpiGenericEventKind;
-use vhl_stdlib::xpi::reply::XpiReplyDiscriminant;
+use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4VecIter};
+use xpi::event::XpiGenericEventKind;
+use xpi::reply::XpiReplyDiscriminant;
+use xpi::xwfd::{NodeId, SerialUriIter, NodeSet, EventKind, ReplyBuilder, XpiRequestKindVlu4};
+use xpi::error::XpiError;
+use xpi::xwfd;
 
 pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
 
@@ -20,7 +18,7 @@ const T: u8 = 2;
 // #[derive(Debug)]
 // pub enum Error {
 //     BufError(BufError),
-//     XpiFailReason(FailReason),
+//     XpiXpiError(XpiError),
 // }
 //
 // impl From<BufError> for Error {
@@ -36,7 +34,7 @@ const T: u8 = 2;
 // task can run without waiting
 //
 // Also need ability to send XpiReply(-s) back to the link from dispatcher
-pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &XpiEventVlu4) {
+pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
     // rprintln!(=>T, "{}", ev);
 
     let self_node_id = NodeId::new(85).unwrap();
@@ -76,7 +74,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &XpiEventVlu4) {
                     const REPLY_MTU: usize = 64;
 
                     let mut eth_wgr = eth_in_prod.grant_exact(REPLY_MTU).unwrap();
-                    let reply_builder = XpiReplyVlu4Builder::new(
+                    let reply_builder = ReplyBuilder::new(
                         NibbleBufMut::new_all(&mut eth_wgr),
                         self_node_id,
                         NodeSet::Unicast(ev.source),
@@ -85,7 +83,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &XpiEventVlu4) {
                         ev.priority
                     ).unwrap();
                     let nwr = reply_builder.build_kind_with(|nwr| {
-                        let mut vb = nwr.put_vec::<Result<&[u8], FailReason>>();
+                        let mut vb = nwr.put_vec::<Result<&[u8], XpiError>>();
                         let mut args_set_iter = args_set.iter();
                         for uri in req.resource_set.flat_iter() {
                             match args_set_iter.next() {
@@ -111,7 +109,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &XpiEventVlu4) {
                                 }
                                 None => {
                                     log_error!(=>T, "No args provided for {}", uri);
-                                    vb.put_result_with_slice(Err(FailReason::NoArgumentsProvided)).unwrap();
+                                    vb.put(&Err(XpiError::NoArgumentsProvided)).unwrap();
                                 }
                             }
                         }
@@ -236,7 +234,7 @@ enum DispatchCallType<'i> {
 /// It is ok to return less data than originally estimated.
 /// Returning an error in dry run allows to batch more replies, as some of them might be invalid,
 /// thus requiring space only for an error code.
-fn dispatch_call(mut uri: UriIter, call_type: DispatchCallType) -> Result<usize, FailReason>
+fn dispatch_call(mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>, call_type: DispatchCallType) -> Result<usize, XpiError>
 {
     use DispatchCallType::*;
 
@@ -245,13 +243,13 @@ fn dispatch_call(mut uri: UriIter, call_type: DispatchCallType) -> Result<usize,
         Some(p) => p,
         None => {
             log_error!(=>T, "Expected root level");
-            return Err(FailReason::BadUri);
+            return Err(XpiError::BadUri);
         }
     };
     match at_root_level {
         0 | 1 => {
             log_error!(=>T, "Resource /{} is not a method", at_root_level);
-            Err(FailReason::NotAMethod)
+            Err(XpiError::NotAMethod)
         }
         2 => {
             match call_type {
@@ -275,7 +273,7 @@ fn dispatch_call(mut uri: UriIter, call_type: DispatchCallType) -> Result<usize,
                     if !rdr.is_at_end() {
                         log_warn!(=>T, "Unused {} bytes left after deserializing arguments", rdr.bytes_left());
                     }
-                    let r = crate::sync_3(p1, p2);
+                    let r = crate::sync(p1, p2);
                     log_trace!(=>T, "Called /sync3({:?}, {:?}) = {:?}", p1, p2, r);
 
                     // size of return type is known in advance = 4
@@ -287,7 +285,7 @@ fn dispatch_call(mut uri: UriIter, call_type: DispatchCallType) -> Result<usize,
         }
         _ => {
             log_error!(=>T, "Resource /{} doesn't exist", at_root_level);
-            Err(FailReason::BadUri)
+            Err(XpiError::BadUri)
         }
     }
     // unreachable!()

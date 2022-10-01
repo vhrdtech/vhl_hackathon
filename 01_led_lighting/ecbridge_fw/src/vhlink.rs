@@ -3,9 +3,8 @@ use rtt_target::rprintln;
 use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
 use vhl_stdlib::serdes::NibbleBuf;
-use vhl_stdlib::serdes::xpi_vlu4::request::XpiRequestVlu4;
-use vhl_stdlib::serdes::xpi_vlu4::XpiEventVlu4;
-use vhl_stdlib::xpi::event::XpiGenericEventKind;
+use xpi::xwfd::{XpiRequestVlu4, Event};
+use xpi::event::XpiGenericEventKind;
 
 // ethernet / can irq task -> put data onto bbqueue?
 // protocol processing task: data slices comes in from bbq -> uavcan/webscoket -> packets arrive
@@ -27,7 +26,7 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
 
             let mut rdr = NibbleBuf::new_all(&buf);
 
-            let xpi_event: XpiEventVlu4 = match rdr.des_vlu4() {
+            let xpi_event: Event = match rdr.des_vlu4() {
                 Ok(req) => req,
                 Err(e) => {
                     rprintln!("{:?}", e);

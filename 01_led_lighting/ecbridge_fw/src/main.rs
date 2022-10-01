@@ -284,21 +284,21 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     }
 }
 
-/// Must be called directly from dispatcher on Call to /sync
-fn sync(a: u8, b: u8) -> u8 {
-    log_trace!(=>3, "sync_fn({}, {}) called", a, b);
-
-    a + b
-}
-
-fn sync_2(a: u8, b: u8) -> u8 {
-    log_trace!(=>3, "sync_fn_2({}, {}) called", a, b);
-
-    a - b
-}
+// /// Must be called directly from dispatcher on Call to /sync
+// fn sync(a: u8, b: u8) -> u8 {
+//     log_trace!(=>3, "sync_fn({}, {}) called", a, b);
+//
+//     a + b
+// }
+//
+// fn sync_2(a: u8, b: u8) -> u8 {
+//     log_trace!(=>3, "sync_fn_2({}, {}) called", a, b);
+//
+//     a - b
+// }
 
 use vhl_cg::point::Point;
-fn sync_3(p1: Point, p2: Point) -> Point {
+fn sync(p1: Point, p2: Point) -> Point {
     Point {
         x: p1.x + p2.x,
         y: p1.y + p2.y
