@@ -23,10 +23,12 @@ use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::bit_buf::Error as BitBufError;
 use vhl_stdlib::serdes::vlu4::{Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
+use xpi::event_kind::XpiEventDiscriminant;
 
 use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, SerialUri, ResourceInfo};
 use xpi_node::node::async_std::{VhNode, NodeError};
 use xpi_node::node::addressing::RemoteNodeAddr;
+use xpi_node::node::filter::{EventFilter, EventKindFilter, NodeSetFilter, SourceFilter};
 
 #[derive(Debug)]
 enum MyError {
@@ -77,18 +79,25 @@ impl ECBridgeClient {
         let _ = wr.put(&p2);
         let (_, _) = wr.finish();
 
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(1);
         let ev = Event::new_with_default_ttl(
-            NodeId(10),
-            NodeSet::Unicast(NodeId(11)),
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
             ResourceSet::Uri(SerialUri::new("/5")),
             EventKind::Call {
                 args_set: vec![args]
             },
-            RequestId(0),
+            request_id,
             Priority::Lossy(0)
         );
         self.node.submit_one(ev).await?;
-        let reply = self.node.filter_one(()).await?;
+        let reply = self.node.filter_one(EventFilter {
+            src: SourceFilter::NodeId(dst_node_id),
+            dst: NodeSetFilter::NodeId(self.node.node_id()),
+            kind: EventKindFilter::One(XpiEventDiscriminant::CallResults),
+            request_id: Some(request_id)
+        }).await?;
         trace!("filter_one returned: {}", reply);
         match reply.kind {
             EventKind::CallResults(results) => {
@@ -125,7 +134,7 @@ async fn main() -> Result<()> {
     // // Establish connection to another node with statically generated xPI
     // // SemVer compatibility checks must pass before any requests can be sent
     // let ecbridge_client = ECBridgeClient::connect(&mut client_node, ecbridge_node_id).await?;
-    let mut ecbridge_client = ECBridgeClient::new(NodeId(10)).await;
+    let mut ecbridge_client = ECBridgeClient::new(NodeId(2)).await;
 
     // let mut local11 = VhNode::new_client(NodeId(11)).await;
     // VhNode::connect_instances(&mut local10, &mut local11).await?;
