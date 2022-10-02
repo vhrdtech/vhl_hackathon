@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use thiserror::Error;
+use tracing::{info, Level, trace};
+use tracing_subscriber::FmtSubscriber;
 
 use vhl_cg::point::Point;
 
@@ -21,10 +23,8 @@ use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::bit_buf::Error as BitBufError;
 use vhl_stdlib::serdes::vlu4::{Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
-use xpi::event::XpiGenericEventKind;
 
-use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, Request, Reply, NodeId, Event, RequestKind, EventKind, SerialUri, ResourceInfo};
-use xpi::reply::XpiGenericReplyKind;
+use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, SerialUri, ResourceInfo};
 use xpi_node::node::async_std::{VhNode, NodeError};
 use xpi_node::node::addressing::RemoteNodeAddr;
 
@@ -77,48 +77,37 @@ impl ECBridgeClient {
         let _ = wr.put(&p2);
         let (_, _) = wr.finish();
 
-        let req = Request {
-            resource_set: ResourceSet::Uri(SerialUri::new("/5")),
-            kind: RequestKind::Call {
-                args_set: vec![args]
-            },
-            request_id: RequestId(0),
-        };
-        let ev = Event::new(
+        let ev = Event::new_with_default_ttl(
             NodeId(10),
             NodeSet::Unicast(NodeId(11)),
-            EventKind::Request(req),
+            ResourceSet::Uri(SerialUri::new("/5")),
+            EventKind::Call {
+                args_set: vec![args]
+            },
+            RequestId(0),
             Priority::Lossy(0)
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(()).await?;
-        println!("Got reply! {:?}", reply);
+        trace!("filter_one returned: {}", reply);
         match reply.kind {
-            XpiGenericEventKind::Reply(rep) => {
-                match rep.kind {
-                    XpiGenericReplyKind::CallComplete(results) => {
-                        if results.len() != 1 {
-                            return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()));
-                        }
-                        match &results[0] {
-                            Ok(result) => {
-                                let mut rd = Buf::new(&result);
-                                let p: Point = rd.des_bytes().unwrap();
-                                Ok(p)
-                            }
-                            Err(e) => {
-                                Err(e.clone().into())
-                            }
-                        }
+            EventKind::CallResults(results) => {
+                if results.len() != 1 {
+                    return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()));
+                }
+                match &results[0] {
+                    Ok(result) => {
+                        let mut rd = Buf::new(&result);
+                        let p: Point = rd.des_bytes().unwrap();
+                        Ok(p)
                     }
-                    u => {
-                        Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())))
+                    Err(e) => {
+                        Err(e.clone().into())
                     }
                 }
             }
             u => {
-                Err(NodeError::ExpectedReply("todo".to_owned()))
-                // Err(NodeError::ExpectedReply(format!("{:?}", u)))
+                Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())))
             }
         }
     }
@@ -126,6 +115,9 @@ impl ECBridgeClient {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let subscriber = FmtSubscriber::builder().with_max_level(Level::TRACE).finish();
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+
     let addr = "tcp://192.168.0.199:7777";
     let addr = RemoteNodeAddr::parse(addr)
         .context(format!("unable to parse socket address: '{}'", addr))?;
@@ -147,8 +139,9 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
 
+    info!("starting /sync call");
     let point = ecbridge_client.sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
-    println!("point: {:?}", point);
+    info!("point: {:?}", point);
 
     // Call /
     // let symbol: char = ecbridge_node.symbol.read().await?;
