@@ -3,8 +3,7 @@ use rtt_target::rprintln;
 use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
 use vhl_stdlib::serdes::NibbleBuf;
-use xpi::xwfd::{Request, Event};
-use xpi::event::XpiGenericEventKind;
+use xpi::xwfd::{Event};
 
 // ethernet / can irq task -> put data onto bbqueue?
 // protocol processing task: data slices comes in from bbq -> uavcan/webscoket -> packets arrive
