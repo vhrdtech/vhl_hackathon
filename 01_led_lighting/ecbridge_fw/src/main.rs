@@ -245,8 +245,8 @@ mod app {
         #[task(binds = ETH, priority = 2, local = [net, eth_in_cons, eth_out_prod, led_act], shared = [poll_at_handle])]
         fn ethernet_event(_: ethernet_event::Context);
 
-        // Must be ethernet_event + 1, otherwise rescheduling logic will not work correctly
-        #[task(priority = 3, shared = [poll_at_handle])]
+        // Priority <= ethernet_event make sense
+        #[task(priority = 2, shared = [poll_at_handle])]
         fn smoltcp_poll_at(_: smoltcp_poll_at::Context);
 
         #[task(shared = [symbol], local = [eth_out_cons, eth_in_prod])]

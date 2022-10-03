@@ -187,7 +187,7 @@ impl TryFrom<smoltcp::wire::IpAddress> for IpAddressL {
 pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
     let time = crate::app::monotonics::now().duration_since_epoch().to_micros();
     log_trace!(=>T, "\nethernet_event: {}us", time);
-    let mut useful_work = false;
+    // TODO: figure out why there are a bunch of ethernet_event: 0us at the start
 
     unsafe { ethernet_h7::interrupt_handler() }
     ctx.local.led_act.toggle();
@@ -197,88 +197,104 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
     let eth_in_cons: &mut bbqueue::Consumer<512> = ctx.local.eth_in_cons;
     let net: &mut Net = ctx.local.net;
 
-    // for i in 0..2 {
-        // rprintln!("poll time: {}us", crate::app::monotonics::now().duration_since_epoch().to_micros());
+    let mut poll_at_advice: Option<crate::Instant> = None;
+    const MAX_ITERATIONS: usize = 5;
+    for i in 0..MAX_ITERATIONS {
+        if i == MAX_ITERATIONS - 1 {
+            log_warn!(=>T, "ethernet_event last iteration reached");
+        }
 
-    let poll1 = net.poll();
+        let might_be_new_data = net.poll();
+        let tcp_socket: &mut TcpSocket = net.iface.get_socket(tcp_handle);
+        // rprintln!("{:?}", tcp_socket.state());
+        if might_be_new_data {
+            handle_tcp_rx(tcp_socket, eth_out_prod);
+        }
+        handle_tcp_tx(tcp_socket, eth_in_cons);
+        if tcp_socket.state() == smoltcp::socket::TcpState::CloseWait {
+            tcp_socket.close();
+        }
+        if !tcp_socket.is_open() {
+            let r = tcp_socket.listen(7777);
+            log_info!(=>T, "tcp_socket: listen(): {:?}", r);
+        }
 
-    let tcp_socket: &mut TcpSocket = net.iface.get_socket(
-        tcp_handle
-    );
-    // rprintln!("{:?}", tcp_socket.state());
-
-    if tcp_socket.state() == smoltcp::socket::TcpState::CloseWait {
-        tcp_socket.close(); useful_work = true;
-    }
-    if !tcp_socket.is_open() {
-        let r = tcp_socket.listen(7777);
-        log_info!(=>T, "tcp_socket: listen(): {:?}", r);
-        useful_work = true;
-    }
-
-    handle_tcp_rx(tcp_socket, eth_out_prod, &mut useful_work);
-    handle_tcp_tx(tcp_socket, eth_in_cons, &mut useful_work);
-
-    let time = crate::app::monotonics::now().duration_since_epoch().to_micros();
-    // rprintln!("poll time: {}us", crate::app::monotonics::now().duration_since_epoch().to_micros());
-
-    let mut poll2: Option<bool> = None;
-    match net.poll_at() {
-        Some(advised_instant) => {
-            if advised_instant.total_micros() == 0 {
-                poll2 = Some(net.poll());
-                log_debug!(=>T, "Should try to cancel?");
-            } else {
-                let poll_at_handle: Option<PollAtHandle> = ctx.shared.poll_at_handle.lock(|h| h.take());
-                log_debug!(=>T, "now: {}us advised to run at: {}us", time, advised_instant.total_micros());
-                let advised_instant = crate::Instant::from_ticks(
-                    advised_instant.total_micros() as u64 * (crate::CORE_FREQ as u64 / 1_000_000)
-                );
-                let poll_at_handle = match poll_at_handle {
-                    Some(poll_at_handle) => {
-                        log_debug!(=>T, "handle before exists, t={}us", poll_at_handle.originally_scheduled_at.duration_since_epoch().to_micros());
-                        if advised_instant < poll_at_handle.originally_scheduled_at {
-                            log_debug!(=>T, "rescheduling smoltcp_poll_at at an earlier time");
-                            poll_at_handle.handle.reschedule_at(advised_instant).map(|handle| {
-                                log_debug!(=>T, "reschedule success");
-                                PollAtHandle {
-                                    originally_scheduled_at: advised_instant,
-                                    handle
-                                }
-                            }).ok()
-                        } else {
-                            log_debug!(=>T, "no need to reschedule");
-                            Some(poll_at_handle)
-                        }
-                    }
-                    None => {
-                        log_debug!(=>T, "handle before is None");
-                        match crate::app::smoltcp_poll_at::spawn_at(advised_instant) {
-                            Ok(handle) => {
-                                Some(PollAtHandle {
-                                    originally_scheduled_at: advised_instant,
-                                    handle
-                                })
-                            }
-                            Err(_) => {
-                                log_warn!(=>T, "Scheduling smoltcp_poll_at failed!");
-                                None
-                            }
-                        }
-                    }
-                };
-                ctx.shared.poll_at_handle.lock(|h| *h = poll_at_handle);
+        match net.poll_at() {
+            Some(advised_instant) => {
+                if advised_instant.total_micros() == 0 {
+                    continue; // poll() needs to be called immediately
+                } else {
+                    log_debug!(=>T, "advised to run at: {}us", advised_instant.total_micros());
+                    let advised_instant = crate::Instant::from_ticks(
+                        advised_instant.total_micros() as u64 * (crate::CORE_FREQ as u64 / 1_000_000)
+                    );
+                    poll_at_advice = Some(advised_instant);
+                    break; // nothing else to do now, schedule or reschedule will be done after this loop
+                }
+            }
+            None => {
+                // nothing else to do
+                // also no advice to run in the future, so cancel schedule if any and not too late to do so
+                poll_at_advice = None;
+                break;
             }
         }
-        None => {
-            log_debug!(=>T, "Should try to cancel on None?");
-        }
     }
 
-    log_warn!(=>T, "definitely_useful={} poll1={} poll2={:?}", useful_work, poll1, poll2);
+    let poll_at_handle: Option<PollAtHandle> = ctx.shared.poll_at_handle.lock(|h| h.take());
+    match poll_at_advice {
+        Some(advised_instant) => {
+            let poll_at_handle = match poll_at_handle {
+                Some(poll_at_handle) => {
+                    log_debug!(=>T,
+                        "handle before exists, t={}us",
+                        poll_at_handle.originally_scheduled_at.duration_since_epoch().to_micros()
+                    );
+                    if advised_instant < poll_at_handle.originally_scheduled_at {
+                        log_debug!(=>T, "rescheduling smoltcp_poll_at at an earlier time");
+                        poll_at_handle.handle.reschedule_at(advised_instant).map(|handle| {
+                            log_debug!(=>T, "reschedule success");
+                            PollAtHandle {
+                                originally_scheduled_at: advised_instant,
+                                handle
+                            }
+                        }).ok()
+                    } else {
+                        log_debug!(=>T, "no need to reschedule");
+                        Some(poll_at_handle)
+                    }
+                }
+                None => {
+                    log_debug!(=>T, "handle before is None");
+                    match crate::app::smoltcp_poll_at::spawn_at(advised_instant) {
+                        Ok(handle) => {
+                            Some(PollAtHandle {
+                                originally_scheduled_at: advised_instant,
+                                handle
+                            })
+                        }
+                        Err(_) => {
+                            log_warn!(=>T, "Scheduling smoltcp_poll_at failed!");
+                            None
+                        }
+                    }
+                }
+            };
+            ctx.shared.poll_at_handle.lock(|h| *h = poll_at_handle);
+        }
+        None => {
+            match poll_at_handle {
+                Some(poll_at_handle) => {
+                    let r = poll_at_handle.handle.cancel();
+                    log_trace!(=>T, "cancelling (if not too late to) smoltcp_poll_at: {:?}", r);
+                }
+                None => {}
+            }
+        }
+    }
 }
 
-fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Producer<512>, useful_work: &mut bool) {
+fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Producer<512>) {
     let remote_endpoint =  tcp_socket.remote_endpoint();
     if tcp_socket.can_recv() {
         match tcp_socket.recv(|buffer| {
@@ -286,7 +302,6 @@ fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Produce
             (buffer.len(), buffer)
         }) {
             Ok(buf) => {
-                // done_smth_useful = true;
                 // rprintln!("tcp_socket: recv: {} {:02x?}", buf.len(), buf);
                 let endpoint: IpEndpointL = match remote_endpoint.try_into() {
                     Ok(endpoint) => endpoint,
@@ -303,7 +318,7 @@ fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Produce
                     Ok(mut wgr) => {
                         let endpoint_ser_len = ssmarshal::serialize(&mut wgr, &endpoint).unwrap();
                         wgr[endpoint_ser_len .. buf.len() + endpoint_ser_len].copy_from_slice(buf);
-                        wgr.commit(buf.len() + endpoint_ser_len); *useful_work = true;
+                        wgr.commit(buf.len() + endpoint_ser_len);
                         let r = crate::app::link_process::spawn();
                         if r.is_err() {
                             log_error!(=>T, "link_process: spawn failed");
@@ -321,13 +336,13 @@ fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Produce
     }
 }
 
-fn handle_tcp_tx(tcp_socket: &mut TcpSocket, eth_in_cons: &mut bbqueue::Consumer<512>, useful_work: &mut bool) {
+fn handle_tcp_tx(tcp_socket: &mut TcpSocket, eth_in_cons: &mut bbqueue::Consumer<512>) {
     if tcp_socket.can_send() {
         match eth_in_cons.read() {
             Ok(rgr) => {
                 match tcp_socket.send_slice(&rgr) {
                     Ok(written) => {
-                        rgr.release(written); *useful_work = true;
+                        rgr.release(written);
                         // done_smth_useful = true;
                         // log_trace!("Written {} to tcp_socket", written);
                     }
@@ -346,7 +361,5 @@ pub fn smoltcp_poll_at(mut cx: crate::app::smoltcp_poll_at::Context) {
     log_trace!("smoltcp_poll_at: {}us", time);
 
     cx.shared.poll_at_handle.lock(|h| *h = None);
-    // if ETH is same or higher priority, it will run immediately, and schedule_at will fail,
-    // since this task is not yet finished
     rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH);
 }
