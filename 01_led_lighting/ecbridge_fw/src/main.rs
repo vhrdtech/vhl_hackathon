@@ -16,6 +16,10 @@ mod logging;
 mod generated_goal;
 
 pub const CORE_FREQ: u32 = 200_000_000;
+#[allow(dead_code)]
+type Instant = fugit::TimerInstantU64<CORE_FREQ>;
+#[allow(dead_code)]
+type Duration = fugit::TimerDurationU64<CORE_FREQ>;
 
 #[rtic::app(device = stm32h7xx_hal::stm32, peripherals = true, dispatchers = [SAI1, SAI2, SAI3, SAI4])]
 mod app {
@@ -26,7 +30,7 @@ mod app {
     use bbqueue::BBBuffer;
     use rtt_target::rtt_init_print;
 
-    use ethernet::ethernet_event;
+    use ethernet::{ethernet_event, smoltcp_poll_at};
     use vhlink::link_process;
     use oled::display_task;
 
@@ -40,6 +44,8 @@ mod app {
 
     #[shared]
     struct SharedResources {
+        poll_at_handle: Option<ethernet::PollAtHandle>,
+
         /// Example of a vhL property placed in RTIC resources
         /// Maybe possible to generate with a proc_macro!
         /// Even better if possible to add notify_task to it
@@ -179,6 +185,7 @@ mod app {
         let (eth_in_prod, eth_in_cons) = ctx.local.eth_in_bb.try_split().unwrap();
 
         // Spawn tasks
+        rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH); // start listening on sockets, etc
         // blinky::spawn_after(1u64.secs()).unwrap();
         display_task::spawn().unwrap();
 
@@ -186,7 +193,8 @@ mod app {
         (
             SharedResources {
                 symbol: '-',
-                digit: 0
+                digit: 0,
+                poll_at_handle: None,
             },
             LocalResources {
                 net,
@@ -234,8 +242,12 @@ mod app {
 
     extern "Rust" {
         // Challenge - how to assemble all the resources names automatically?
-        #[task(binds = ETH, priority = 2, local = [net, eth_in_cons, eth_out_prod, led_act])]
+        #[task(binds = ETH, priority = 2, local = [net, eth_in_cons, eth_out_prod, led_act], shared = [poll_at_handle])]
         fn ethernet_event(_: ethernet_event::Context);
+
+        // Must be ethernet_event + 1, otherwise rescheduling logic will not work correctly
+        #[task(priority = 3, shared = [poll_at_handle])]
+        fn smoltcp_poll_at(_: smoltcp_poll_at::Context);
 
         #[task(shared = [symbol], local = [eth_out_cons, eth_in_prod])]
         fn link_process(_: link_process::Context);
@@ -246,6 +258,7 @@ mod app {
 }
 
 use cortex_m_rt::exception;
+use dwt_systick_monotonic::fugit;
 
 #[exception]
 unsafe fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {

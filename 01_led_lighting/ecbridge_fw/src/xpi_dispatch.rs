@@ -37,7 +37,7 @@ const T: u8 = 2;
 pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
     rprintln!(=>T, "xpi_dispatch: {}", ev);
 
-    let self_node_id = NodeId::new(85).unwrap();
+    let self_node_id = NodeId::new(1).unwrap();
     let eth_in_prod: &mut bbqueue::Producer<512> = ctx.local.eth_in_prod;
 
     // 1. check if req.destination applies to this node
