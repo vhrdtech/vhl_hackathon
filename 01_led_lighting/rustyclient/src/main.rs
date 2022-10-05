@@ -8,8 +8,7 @@ use std::sync::{Arc, RwLock, TryLockResult};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use thiserror::Error;
-use tracing::{info, Level, trace};
+use tracing::{debug, info, Level, trace};
 use tracing_subscriber::FmtSubscriber;
 
 use vhl_cg::point::Point;
@@ -71,13 +70,12 @@ impl ECBridgeClient {
         self.node.connect_remote(addr).await
     }
 
-    pub async fn sync(&mut self, p1: Point, p2: Point) -> Result<Point, NodeError> {
+    pub async fn sync(&mut self, p1: Point, p2: Point) -> Result<Point> {
         let mut args = Vec::new();
         args.resize(8, 0);
-        let mut wr = BufMut::new(&mut args);
-        let _ = wr.put(&p1);
-        let _ = wr.put(&p2);
-        let (_, _) = wr.finish();
+        let mut nwr = NibbleBufMut::new_all(&mut args);
+        nwr.put(&p1)?;
+        nwr.put(&p2)?;
 
         let request_id = RequestId(3);
         let dst_node_id = NodeId(1);
@@ -86,7 +84,7 @@ impl ECBridgeClient {
             NodeSet::Unicast(dst_node_id),
             ResourceSet::Uri(SerialUri::new("/5")),
             EventKind::Call {
-                args_set: vec![args]
+                args_set: vec![nwr.to_nibble_buf_owned()]
             },
             request_id,
             Priority::Lossy(0)
@@ -102,12 +100,12 @@ impl ECBridgeClient {
         match reply.kind {
             EventKind::CallResults(results) => {
                 if results.len() != 1 {
-                    return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()));
+                    return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()).into());
                 }
                 match &results[0] {
                     Ok(result) => {
-                        let mut rd = Buf::new(&result);
-                        let p: Point = rd.des_bytes().unwrap();
+                        let mut nrd = result.to_nibble_buf_ref();
+                        let p: Point = nrd.des_vlu4().context("Deserializing reply")?;
                         Ok(p)
                     }
                     Err(e) => {
@@ -116,7 +114,7 @@ impl ECBridgeClient {
                 }
             }
             u => {
-                Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())))
+                Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())).into())
             }
         }
     }
@@ -145,12 +143,12 @@ async fn main() -> Result<()> {
     ecbridge_client.connect_remote(addr).await?;
 
 
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
 
     info!("starting /sync call");
     let point = ecbridge_client.sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
-    info!("point: {:?}", point);
+    debug!("point: {:?}", point);
 
     // Call /
     // let symbol: char = ecbridge_node.symbol.read().await?;
@@ -200,6 +198,6 @@ async fn main() -> Result<()> {
     // let reply: XpiReply = rdr.des_vlu4().unwrap();
     // println!("{:?}", reply);
 
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    //tokio::time::sleep(Duration::from_secs(5)).await;
     Ok(())
 }
