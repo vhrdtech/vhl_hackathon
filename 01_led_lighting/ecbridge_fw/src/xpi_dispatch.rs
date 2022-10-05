@@ -3,7 +3,7 @@ use vhl_cg::point::Point;
 use vhl_stdlib::serdes::buf::{Buf, BufMut};
 use crate::{log_error, log_info, log_trace, log_warn};
 use vhl_stdlib::serdes::buf::Error as BufError;
-use vhl_stdlib::serdes::NibbleBufMut;
+use vhl_stdlib::serdes::{NibbleBuf, NibbleBufMut, SerDesSize};
 use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4VecIter};
 use xpi::event_kind::{XpiEventDiscriminant, XpiGenericEventKind};
 use xpi::xwfd::{NodeId, SerialUriIter, NodeSet, EventKind, EventBuilder};
@@ -34,7 +34,7 @@ const T: u8 = 2;
 // task can run without waiting
 //
 // Also need ability to send XpiReply(-s) back to the link from dispatcher
-pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
+pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(), XpiError> {
     rprintln!(=>T, "xpi_dispatch: {}", ev);
 
     let self_node_id = NodeId::new(1).unwrap();
@@ -81,7 +81,7 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
                 U4::new(15).unwrap()
             ).unwrap();
             let nwr = reply_builder.build_kind_with(|nwr| {
-                let mut vb = nwr.put_vec::<Result<&[u8], XpiError>>();
+                let mut vb = nwr.put_vec::<Result<NibbleBuf, XpiError>>();
                 let mut args_set_iter = args_set.iter();
                 for uri in ev.resource_set.flat_iter() {
                     match args_set_iter.next() {
@@ -93,27 +93,37 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
                             // need to know result_len already from DryRun -- won't work with variable len return types(:
                             // speculatively write len(rest of the buffer), then dispatch and re-write the size, possible sending some 0s
                             // or copy will be required to properly shift the data (from the separate buffer or the same)
-                            let result_len = dispatch_call(uri.clone(), DispatchCallType::DryRun).unwrap();
+                            let size_hint = dispatch_call(uri.clone(), DispatchCallType::DryRun)?;
 
-                            vb.put_result_with_slice_from(result_len, |result| {
+
+                            // vb.put_result_with_slice_from(result_len, |result| {
+                            //     dispatch_call(
+                            //         uri.clone(),
+                            //         DispatchCallType::RealRun { args, result }
+                            //     ).map(|_| ()).map_err(|e| {
+                            //         log_error!(=>T, "dispatch error: {:?}", e);
+                            //         e
+                            //     })
+                            // }).unwrap();
+                            vb.put_result_nib_slice_with(size_hint, |result_nwr| {
                                 dispatch_call(
                                     uri.clone(),
-                                    DispatchCallType::RealRun { args, result }
+                                    DispatchCallType::RealRun { args_nrd: args, result_nwr, }
                                 ).map(|_| ()).map_err(|e| {
                                     log_error!(=>T, "dispatch error: {:?}", e);
                                     e
                                 })
-                            }).unwrap();
+                            })?;
                         }
                         None => {
                             log_error!(=>T, "No args provided for {}", uri);
-                            vb.put(&Err(XpiError::NoArgumentsProvided)).unwrap();
+                            vb.put(&Err(XpiError::NoArgumentsProvided))?;
                         }
                     }
                 }
                 let nwr = vb.finish()?;
                 Ok((XpiEventDiscriminant::CallResults, nwr))
-            }).unwrap();
+            })?;
 
             log_trace!(=>T, "XpiReply {}", nwr);
             let (_, len, _) = nwr.finish();
@@ -142,72 +152,14 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) {
         }
     }
 
-
-    // match req.kind {
-    //     XpiRequestKind::Call { args } => {
-    //         let uri = 2;
-    //         if uri == 2 {
-    //             // Choice A
-    //             // spawn a task
-    //             let slice = args.iter().next().unwrap();
-    //             let arg = slice[0];
-    //             let r = crate::app::set_digit::spawn(arg);
-    //             if r.is_err() {
-    //                 rprintln!(=>2, "spawn_failed");
-    //             }
-    //
-    //             // 0. get wgr, but for now just buf
-    //             let mut buf = [0u8; 64];
-    //
-    //             // 1. serialize XpiReply to it
-    //             // 1.1 get own NodeId from XpiNode or smth
-    //             let self_node_id = NodeId::new(33).unwrap();
-    //
-    //             let reply_slice = [1, 2, 3];
-    //             let reply_kind = XpiReplyKind::CallComplete(Ok(Vlu4Slice { slice: &reply_slice }));
-    //             let reply = XpiReply {
-    //                 source: self_node_id,
-    //                 destination: NodeSet::Unicast(req.source),
-    //                 kind: reply_kind,
-    //                 resource_set: req.resource_set,
-    //                 request_id: req.request_id,
-    //                 priority: req.priority
-    //             };
-    //
-    //
-    //
-    //             // 2. send back
-    //
-    //         } else if uri == 3 {
-    //             // should be generated:
-    //             let rdr = NibbleBuf::new()
-    //             let a =
-    //             let r = crate::sync_fn(a, b);
-    //         }
-    //     }
-    //     XpiRequestKind::ChainCall { .. } => {}
-    //     XpiRequestKind::Read => {}
-    //     XpiRequestKind::Write { .. } => {
-    //         // Choice A - write into rtic resources
-    //         ctx.shared.symbol.lock(|symbol| *symbol = 'X');
-    //         crate::app::display_task::spawn().unwrap();
-    //         // Notify someone
-    //     }
-    //     XpiRequestKind::OpenStreams => {}
-    //     XpiRequestKind::CloseStreams => {}
-    //     XpiRequestKind::Subscribe { .. } => {}
-    //     XpiRequestKind::Unsubscribe => {}
-    //     XpiRequestKind::Borrow => {}
-    //     XpiRequestKind::Release => {}
-    //     XpiRequestKind::Introspect => {}
-    // }
+    Ok(())
 }
 
-enum DispatchCallType<'i> {
+enum DispatchCallType<'i, 'a, 'b> {
     DryRun,
     RealRun {
-        args: &'i [u8],
-        result: &'i mut [u8],
+        args_nrd: NibbleBuf<'i>,
+        result_nwr: &'a mut NibbleBufMut<'b>,
     }
 }
 
@@ -220,7 +172,7 @@ enum DispatchCallType<'i> {
 /// It is ok to return less data than originally estimated.
 /// Returning an error in dry run allows to batch more replies, as some of them might be invalid,
 /// thus requiring space only for an error code.
-fn dispatch_call(mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>, call_type: DispatchCallType) -> Result<usize, XpiError>
+fn dispatch_call(mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>, call_type: DispatchCallType) -> Result<SerDesSize, XpiError>
 {
     use DispatchCallType::*;
 
@@ -239,33 +191,31 @@ fn dispatch_call(mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>, call_type: Dispatch
         }
         2 => {
             match call_type {
-                DryRun => Ok(0),
-                RealRun { args, .. } => {
-                    let a = args[0];
+                DryRun => Ok(SerDesSize::Sized(0)),
+                RealRun { args_nrd: mut args, .. } => {
+                    let a = args.des_vlu4()?;
                     let spawn_r = crate::app::set_digit::spawn(a);
                     log_trace!(=>T, "Spawning /set_digit({}) {:?}", a, spawn_r);
 
-                    Ok(0)
+                    Ok(SerDesSize::Sized(0))
                 }
             }
         }
         5 => {
             match call_type {
-                DryRun => Ok(4),
-                RealRun { args, result } => {
-                    let mut rdr = Buf::new(args);
-                    let p1: Point = rdr.des_bytes()?;
-                    let p2: Point = rdr.des_bytes()?;
-                    if !rdr.is_at_end() {
-                        log_warn!(=>T, "Unused {} bytes left after deserializing arguments", rdr.bytes_left());
+                DryRun => Ok(SerDesSize::Sized(8)),
+                RealRun { mut args_nrd, result_nwr } => {
+                    let p1: Point = args_nrd.des_vlu4()?;
+                    let p2: Point = args_nrd.des_vlu4()?;
+                    if !args_nrd.is_at_end() { // TODO: remove this as semver compatible newer versions can contain more data
+                        log_warn!(=>T, "Unused {} nib left after deserializing arguments", args_nrd.nibbles_left());
                     }
                     let r = crate::sync(p1, p2);
                     log_trace!(=>T, "Called /sync3({:?}, {:?}) = {:?}", p1, p2, r);
 
                     // size of return type is known in advance = 4
-                    let mut wgr = BufMut::new(result);
-                    wgr.put(&r)?;
-                    Ok(4)
+                    result_nwr.put(&r)?;
+                    Ok(SerDesSize::Sized(result_nwr.nibbles_pos()))
                 }
             }
         }

@@ -3,7 +3,9 @@ use rtt_target::rprintln;
 use crate::ethernet::IpEndpointL;
 use crate::xpi_dispatch::xpi_dispatch;
 use vhl_stdlib::serdes::NibbleBuf;
+use xpi::error::XpiError;
 use xpi::xwfd::{Event};
+use crate::log_error;
 
 // ethernet / can irq task -> put data onto bbqueue?
 // protocol processing task: data slices comes in from bbq -> uavcan/webscoket -> packets arrive
@@ -28,7 +30,12 @@ pub fn link_process(mut ctx: crate::app::link_process::Context) {
             let xpi_event: Result<Event, _> = rdr.des_vlu4();
             match xpi_event {
                 Ok(ev) => {
-                    xpi_dispatch(&mut ctx, &ev);
+                    match xpi_dispatch(&mut ctx, &ev) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log_error!(=>1, "xpi_dispatch err: {:?}", e);
+                        }
+                    }
                 },
                 Err(e) => {
                     rprintln!(=>1, "{:?}", e);
