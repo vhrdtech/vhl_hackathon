@@ -240,6 +240,11 @@ mod app {
         display_task::spawn().unwrap();
     }
 
+    #[task]
+    fn async_task(_cx: async_task::Context, p1: Point, p2: Point) {
+        log_info!(=>T, "async_task: {:?} {:?}", p1, p2);
+    }
+
     extern "Rust" {
         // Challenge - how to assemble all the resources names automatically?
         #[task(binds = ETH, priority = 2, local = [net, eth_in_cons, eth_out_prod, led_act], shared = [poll_at_handle])]

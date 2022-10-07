@@ -23,5 +23,5 @@
     // Should be spawned through rtic and result sent asynchronously later
     // Pass ReturnToken to it with u32 or u64 counter inside to match req/rep even if lower bit id is used
     // #[dispatch(rtic_defer(crate::app::task_with_return))]
-    // /async_spawn< fn(p1: Point, p2: Point) -> Point, #6>
+    /async< fn(p1: Point, p2: Point) -> Point, #6>
 }
