@@ -3,7 +3,7 @@ use vhl_cg::point::Point;
 use vhl_stdlib::serdes::buf::{Buf, BufMut};
 use crate::{log_error, log_info, log_trace, log_warn};
 use vhl_stdlib::serdes::buf::Error as BufError;
-use vhl_stdlib::serdes::{NibbleBuf, NibbleBufMut, SerDesSize};
+use vhl_stdlib::serdes::{NibbleBuf, NibbleBufMut, SerDesSize, SerializeVlu4};
 use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4VecIter};
 use xpi::event_kind::{XpiEventDiscriminant, XpiGenericEventKind};
 use xpi::xwfd::{NodeId, SerialUriIter, NodeSet, EventKind, EventBuilder};
@@ -74,12 +74,22 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
             let reply_builder = EventBuilder::new(
                 NibbleBufMut::new_all(&mut eth_wgr),
                 self_node_id,
-                NodeSet::Unicast(ev.source),
-                ev.resource_set.clone(),
+                // NodeSet::Unicast(ev.source),
+                // ev.resource_set.clone(),
                 ev.request_id,
                 ev.priority,
                 U4::new(15).unwrap()
             ).unwrap();
+            let reply_builder = reply_builder.build_node_set_with(|mut nwr| {
+                let node_set = NodeSet::Unicast(ev.source);
+                node_set.ser_vlu4(&mut nwr)?;
+                Ok((node_set.ser_header(), nwr))
+            }).unwrap();
+            let reply_builder = reply_builder.build_resource_set_with(|mut nwr| {
+                let resource_set = ev.resource_set.clone();
+                resource_set.ser_vlu4(&mut nwr)?;
+                Ok((resource_set.ser_header(), nwr))
+            }).unwrap();
             let nwr = reply_builder.build_kind_with(|nwr| {
                 let mut vb = nwr.put_vec::<Result<NibbleBuf, XpiError>>();
                 let mut args_set_iter = args_set.iter();
@@ -93,7 +103,13 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
                             // need to know result_len already from DryRun -- won't work with variable len return types(:
                             // speculatively write len(rest of the buffer), then dispatch and re-write the size, possible sending some 0s
                             // or copy will be required to properly shift the data (from the separate buffer or the same)
-                            let size_hint = dispatch_call(uri.clone(), DispatchCallType::DryRun)?;
+                            let size_hint = match dispatch_call(uri.clone(), DispatchCallType::DryRun) {
+                                Ok(size_hint) => size_hint,
+                                Err(e) => {
+                                    vb.put(&Err(e))?;
+                                    continue;
+                                }
+                            };
 
 
                             // vb.put_result_with_slice_from(result_len, |result| {
