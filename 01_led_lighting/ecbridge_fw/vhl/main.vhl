@@ -10,7 +10,7 @@
 
     // Should go to local resources in rtic
     #[dispatch(rtic_shared(symbol))]
-    /symbol<rw char, #1>
+    /symbol<rw u8, #1>
 
     // Should spawn a task
     #[dispatch = rtic(crate::app::set_digit)]

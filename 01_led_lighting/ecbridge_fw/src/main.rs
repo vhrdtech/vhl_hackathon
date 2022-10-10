@@ -14,6 +14,7 @@ mod oled;
 mod vt100;
 mod logging;
 mod generated_goal;
+mod xpi_gen;
 
 pub const CORE_FREQ: u32 = 200_000_000;
 #[allow(dead_code)]

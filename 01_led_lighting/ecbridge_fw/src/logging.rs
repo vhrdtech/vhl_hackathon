@@ -29,20 +29,20 @@ macro_rules! _log_internal {
     };
     ($level: ident) => {
         #[cfg(feature = "log-text-rtt")]
-        rtt_target::rprintln!();
+        rtt_target::rprintln!(=>T);
     };
     ($level: ident, $fmt:expr) => {
         #[cfg(feature = "log-text-rtt")] {
-            rtt_target::rprint!("{}", crate::_level_to_color!($level));
-            rtt_target::rprintln!($fmt);
-            rtt_target::rprint!(crate::vt100::DEFAULT);
+            rtt_target::rprint!(=>T, "{}", crate::_level_to_color!($level));
+            rtt_target::rprintln!(=>T, $fmt);
+            rtt_target::rprint!(=>T, crate::vt100::DEFAULT);
         }
     };
     ($level: ident, $fmt:expr, $($arg:tt)*) => {
         #[cfg(feature = "log-text-rtt")] {
-            rtt_target::rprint!("{}", crate::_level_to_color!($level));
-            rtt_target::rprintln!($fmt, $($arg)*);
-            rtt_target::rprint!(crate::vt100::DEFAULT);
+            rtt_target::rprint!(=>T, "{}", crate::_level_to_color!($level));
+            rtt_target::rprintln!(=>T, $fmt, $($arg)*);
+            rtt_target::rprint!(=>T, crate::vt100::DEFAULT);
         }
     };
 }
