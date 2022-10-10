@@ -14,6 +14,8 @@ use xpi::xwfd::event::EventBuilderKindState;
 use xpi::xwfd::{EventBuilder, EventKind, MultiUriFlatIter, NodeId, NodeSet, SerialUriIter};
 
 pub type DispatcherContext<'c> = crate::app::link_process::Context<'c>;
+pub type DispatcherShared<'c> = crate::app::link_process::SharedResources<'c>;
+use rtic::Mutex;
 
 const T: u8 = 2;
 
@@ -86,7 +88,9 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
             }
         }
         if batch_len > 0 {
-            let mut eth_wgr = eth_in_prod.grant_exact(REPLY_MTU).map_err(|_| XpiError::InternalBbqueueError)?;
+            let mut eth_wgr = eth_in_prod
+                .grant_exact(REPLY_MTU)
+                .map_err(|_| XpiError::InternalBbqueueError)?;
             let reply_builder = EventBuilder::new(
                 NibbleBufMut::new_all(&mut eth_wgr),
                 self_node_id,
@@ -94,18 +98,16 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
                 ev.priority,
                 U4::new(15).unwrap(),
             )?;
-            let reply_builder = reply_builder
-                .build_node_set_with(|mut nwr| {
-                    let node_set = NodeSet::Unicast(ev.source);
-                    node_set.ser_vlu4(&mut nwr)?;
-                    Ok((node_set.ser_header(), nwr))
-                })?;
-            let reply_builder = reply_builder
-                .build_resource_set_with(|mut nwr| {
-                    let resource_set = ev.resource_set.clone();
-                    resource_set.ser_vlu4(&mut nwr)?;
-                    Ok((resource_set.ser_header(), nwr))
-                })?;
+            let reply_builder = reply_builder.build_node_set_with(|mut nwr| {
+                let node_set = NodeSet::Unicast(ev.source);
+                node_set.ser_vlu4(&mut nwr)?;
+                Ok((node_set.ser_header(), nwr))
+            })?;
+            let reply_builder = reply_builder.build_resource_set_with(|mut nwr| {
+                let resource_set = ev.resource_set.clone();
+                resource_set.ser_vlu4(&mut nwr)?;
+                Ok((resource_set.ser_header(), nwr))
+            })?;
             let nwr = match &ev.kind {
                 EventKind::Call { args_set } => dispatch_call_set(
                     &mut resource_set_execute_uri_iter,
@@ -118,6 +120,13 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
                     &reply_lookahead[..batch_len],
                     reply_builder,
                     values,
+                    &mut ctx.shared,
+                )?,
+                EventKind::Read => dispatch_read_set(
+                    &mut resource_set_execute_uri_iter,
+                    &reply_lookahead[..batch_len],
+                    reply_builder,
+                    &mut ctx.shared,
                 )?,
                 u => {
                     log_warn!("Unsupported: {}", u);
@@ -127,7 +136,12 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
             if immediate_replies == 0 {
                 log_trace!("Only async replies in a batch, not committing.");
             } else {
-                log_trace!("XpiReply {}, free space left={} expected:{}", nwr, nwr.nibbles_left(), reply_nibbles_left);
+                log_trace!(
+                    "XpiReply {}, free space left={} expected:{}",
+                    nwr,
+                    nwr.nibbles_left(),
+                    reply_nibbles_left
+                );
                 let (_, len, _) = nwr.finish();
                 log_trace!("commit {}", len);
                 eth_wgr.commit(len);
@@ -139,7 +153,10 @@ pub fn xpi_dispatch(ctx: &mut DispatcherContext, ev: &xwfd::Event) -> Result<(),
         }
     }
     if resource_set_lookahead_uri_iter.next().is_some() {
-        log_error!("Maximum request count({}) is reached, some requests are skipped", MAX_REPLY_BATCH_LEN * MAX_REPLY_BATCHES);
+        log_error!(
+            "Maximum request count({}) is reached, some requests are skipped",
+            MAX_REPLY_BATCH_LEN * MAX_REPLY_BATCHES
+        );
     }
 
     Ok(())
@@ -218,6 +235,7 @@ fn dispatch_write_set<'i>(
     reply_lookahead: &[Option<ReplySizeHint>],
     reply_builder: EventBuilderKindState<'i>,
     values: &Vlu4Vec<NibbleBuf>,
+    shared: &mut DispatcherShared,
 ) -> Result<NibbleBufMut<'i>, XpiError> {
     let nwr = reply_builder.build_kind_with(|nwr| {
         let mut vb = nwr.put_vec::<Result<(), XpiError>>();
@@ -226,12 +244,11 @@ fn dispatch_write_set<'i>(
             let uri = resource_set_execute_uri_iter.next().expect("");
             match reply_size_hint {
                 Some(ReplySizeHint::Sync {
-                         preliminary_result,
-                         ..
-                     }) => match preliminary_result {
+                    preliminary_result, ..
+                }) => match preliminary_result {
                     Ok(_) => match args_set_iter.next() {
                         Some(value_nrd) => {
-                            vb.put(&dispatch_write(uri.clone(), value_nrd))?;
+                            vb.put(&dispatch_write(uri.clone(), value_nrd, shared))?;
                         }
                         None => {
                             log_error!("No args provided for {}", uri);
@@ -249,6 +266,42 @@ fn dispatch_write_set<'i>(
         }
         let nwr = vb.finish()?;
         Ok((XpiEventDiscriminant::WriteResults, nwr))
+    })?;
+    Ok(nwr)
+}
+
+fn dispatch_read_set<'i>(
+    resource_set_execute_uri_iter: &mut MultiUriFlatIter,
+    reply_lookahead: &[Option<ReplySizeHint>],
+    reply_builder: EventBuilderKindState<'i>,
+    shared: &mut DispatcherShared,
+) -> Result<NibbleBufMut<'i>, XpiError> {
+    let nwr = reply_builder.build_kind_with(|nwr| {
+        let mut vb = nwr.put_vec::<Result<NibbleBuf, XpiError>>();
+        for reply_size_hint in reply_lookahead {
+            let uri = resource_set_execute_uri_iter.next().expect("");
+            match reply_size_hint {
+                Some(ReplySizeHint::Sync {
+                    preliminary_result,
+                    raw_size,
+                    ..
+                }) => match preliminary_result {
+                    Ok(_) => {
+                        vb.put_result_nib_slice_with(*raw_size, |value_nwr| {
+                            dispatch_read(uri.clone(), value_nwr, shared)
+                        })?;
+                    }
+                    Err(e) => {
+                        vb.put(&Err(e.clone()))?;
+                    }
+                },
+                Some(ReplySizeHint::Async) | None => {
+                    return Err(XpiError::Internal); // shouldn't be reached, writes are only sync
+                }
+            }
+        }
+        let nwr = vb.finish()?;
+        Ok((XpiEventDiscriminant::ReadResults, nwr))
     })?;
     Ok(nwr)
 }
@@ -289,7 +342,10 @@ fn dispatch_call(
             let p2: Point = args_nrd.des_vlu4()?;
             if !args_nrd.is_at_end() {
                 // TODO: remove this as semver compatible newer versions can contain more data
-                log_warn!("Unused {} nib left after deserializing arguments", args_nrd.nibbles_left());
+                log_warn!(
+                    "Unused {} nib left after deserializing arguments",
+                    args_nrd.nibbles_left()
+                );
             }
             let r = crate::sync(p1, p2);
             log_trace!("Called /sync3({:?}, {:?}) = {:?}", p1, p2, r);
@@ -315,6 +371,7 @@ fn dispatch_call(
 fn dispatch_write(
     mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
     mut value_nrd: NibbleBuf,
+    shared: &mut DispatcherShared,
 ) -> Result<(), XpiError> {
     log_info!("dispatch_write({})", uri);
     match uri.next() {
@@ -323,12 +380,42 @@ fn dispatch_write(
             return Err(XpiError::BadUri);
         }
         Some(1) => {
-            let c: u8 = value_nrd.des_vlu4()?;
-            log_info!("write {}", c);
+            let digit: u8 = value_nrd.des_vlu4()?;
+            shared.digit.lock(|d| *d = digit);
+            log_info!("write {}", digit);
+            let _ = crate::app::display_task::spawn();
             Ok(())
         }
         id @ Some(2 | 5 | 6) => {
-            log_error!("Resource /{:?} is not a method", id);
+            log_error!("Resource /{:?} is not a property", id);
+            Err(XpiError::NotAMethod)
+        }
+        not_defined => {
+            log_error!("Resource /{:?} doesn't exist", not_defined);
+            Err(XpiError::BadUri)
+        }
+    }
+    // unreachable!()
+}
+
+fn dispatch_read(
+    mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
+    value_nwr: &mut NibbleBufMut,
+    shared: &mut DispatcherShared,
+) -> Result<(), XpiError> {
+    log_info!("dispatch_read({})", uri);
+    match uri.next() {
+        None => {
+            log_error!("Expected root level");
+            return Err(XpiError::BadUri);
+        }
+        Some(1) => {
+            let digit = shared.digit.lock(|d| *d);
+            value_nwr.put(&digit)?;
+            Ok(())
+        }
+        id @ Some(2 | 5 | 6) => {
+            log_error!("Resource /{:?} is not a property", id);
             Err(XpiError::NotAMethod)
         }
         not_defined => {
@@ -388,17 +475,14 @@ fn reply_size_hint(
         None => match event_kind {
             _ => not_supported,
         },
-        Some(1) => {
-            match uri.next() {
-                None => match event_kind {
-                    Write => {
-                        ReplySizeHint::sync(SerDesSize::Sized(3), SerDesSize::Sized(0), Ok(()))
-                    }
-                    _ => not_supported
-                },
-                Some(_) => bad_uri,
-            }
-        }
+        Some(1) => match uri.next() {
+            None => match event_kind {
+                Write => ReplySizeHint::sync(SerDesSize::Sized(3), SerDesSize::Sized(0), Ok(())),
+                Read => ReplySizeHint::sync(SerDesSize::Sized(2 + 3), SerDesSize::Sized(2), Ok(())),
+                _ => not_supported,
+            },
+            Some(_) => bad_uri,
+        },
         Some(5) => {
             match uri.next() {
                 // dispatch /main/sync

@@ -19,11 +19,11 @@ pub fn display_task(mut cx: crate::app::display_task::Context) {
     let display = cx.local.display;
     display.clear();
 
-    let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("../vhrd_tech_72_40.raw"), 72);
-    let im = Image::new(&raw, Point::new(0, 0));
-    im.draw(display).unwrap();
-
-    if false {
+    // let raw: ImageRaw<BinaryColor> = ImageRaw::new(include_bytes!("../vhrd_tech_72_40.raw"), 72);
+    // let im = Image::new(&raw, Point::new(0, 0));
+    // im.draw(display).unwrap();
+    //
+    // if false {
         let size = 10;
         let offset = Point::new(40, (42 / 2) - (size / 2) - 1);
         let _spacing = size + 10;
@@ -50,7 +50,7 @@ pub fn display_task(mut cx: crate::app::display_task::Context) {
 
         let symbol_str = ((digit + '0' as u8) as char).encode_utf8(&mut str_buf);
         Text::new(symbol_str, Point::new(5, 30), style).draw(display).unwrap();
-    }
+    // }
 
     display.flush().unwrap();
 }

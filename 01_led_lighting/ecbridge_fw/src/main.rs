@@ -255,7 +255,7 @@ mod app {
         #[task(priority = 2, shared = [poll_at_handle])]
         fn smoltcp_poll_at(_: smoltcp_poll_at::Context);
 
-        #[task(shared = [symbol], local = [eth_out_cons, eth_in_prod])]
+        #[task(shared = [digit], local = [eth_out_cons, eth_in_prod])]
         fn link_process(_: link_process::Context);
 
         #[task(local = [display], shared = [symbol, digit])]

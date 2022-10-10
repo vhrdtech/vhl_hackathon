@@ -8,13 +8,10 @@
     /// Should be initialized on the node and passed to the dispatcher
     /constant<const u8, #0>
 
-    // Should go to local resources in rtic
-    #[dispatch(rtic_shared(symbol))]
-    /symbol<rw u8, #1>
-
-    // Should spawn a task
-    #[dispatch = rtic(crate::app::set_digit)]
-    /set_digit< fn(digit: u8), #2>
+    // Shared resources in rtic
+    #[dispatch = rtic_shared(digit)]
+    #[notify = rtic_spawn(display_task)]
+    /digit<rw u8, #1>
 
     // Should be called directly from dispatcher
     #[dispatch = sync(crate::sync)]
