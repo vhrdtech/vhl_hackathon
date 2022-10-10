@@ -20,7 +20,7 @@ use vhl_stdlib::serdes::traits::SerializeBytes;
 use vhl_stdlib::serdes::nibble_buf::Error as NibbleBufError;
 use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::bit_buf::Error as BitBufError;
-use vhl_stdlib::serdes::vlu4::{Vlu4Vec, Vlu4VecBuilder};
+use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
 use xpi::event_kind::XpiEventDiscriminant;
 
@@ -70,7 +70,8 @@ impl ECBridgeClient {
         self.node.connect_remote(addr).await
     }
 
-    pub async fn sync(&mut self, p1: Point, p2: Point) -> Result<Point> {
+    #[allow(dead_code)]
+    pub async fn call_sync(&mut self, p1: Point, p2: Point) -> Result<Point> {
         let mut args = Vec::new();
         args.resize(8, 0);
         let mut nwr = NibbleBufMut::new_all(&mut args);
@@ -82,7 +83,7 @@ impl ECBridgeClient {
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(SerialUri::new("/5")),
+            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(5)] }),
             EventKind::Call {
                 args_set: vec![nwr.to_nibble_buf_owned()]
             },
@@ -118,6 +119,96 @@ impl ECBridgeClient {
             }
         }
     }
+
+    #[allow(dead_code)]
+    pub async fn write_digit(&mut self, digit: u8) -> Result<()> {
+        let mut args = Vec::new();
+        args.resize(8, 0);
+        let mut nwr = NibbleBufMut::new_all(&mut args);
+        nwr.put(&digit)?;
+
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(1);
+        let ev = Event::new_with_default_ttl(
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
+            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(1)] }),
+            EventKind::Write {
+                values: vec![nwr.to_nibble_buf_owned()]
+            },
+            request_id,
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let reply = self.node.filter_one(EventFilter {
+            src: SourceFilter::NodeId(dst_node_id),
+            dst: NodeSetFilter::NodeId(self.node.node_id()),
+            kind: EventKindFilter::One(XpiEventDiscriminant::WriteResults),
+            request_id: Some(request_id)
+        }).await?;
+        trace!("filter_one returned: {}", reply);
+        match reply.kind {
+            EventKind::WriteResults(results) => {
+                if results.len() != 1 {
+                    return Err(NodeError::ExpectedDifferentAmountOf("WriteResults results".to_owned()).into());
+                }
+                match &results[0] {
+                    Ok(_) => {
+                        Ok(())
+                    }
+                    Err(e) => {
+                        Err(e.clone().into())
+                    }
+                }
+            }
+            u => {
+                Err(NodeError::ExpectedReplyKind("WriteResults".to_owned(), format!("{:?}", u.discriminant())).into())
+            }
+        }
+    }
+
+
+    #[allow(dead_code)]
+    pub async fn read_digit(&mut self) -> Result<u8> {
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(1);
+        let ev = Event::new_with_default_ttl(
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
+            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(1)] }),
+            EventKind::Read,
+            request_id,
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let reply = self.node.filter_one(EventFilter {
+            src: SourceFilter::NodeId(dst_node_id),
+            dst: NodeSetFilter::NodeId(self.node.node_id()),
+            kind: EventKindFilter::One(XpiEventDiscriminant::ReadResults),
+            request_id: Some(request_id)
+        }).await?;
+        trace!("filter_one returned: {}", reply);
+        match reply.kind {
+            EventKind::ReadResults(results) => {
+                if results.len() != 1 {
+                    return Err(NodeError::ExpectedDifferentAmountOf("WriteResults results".to_owned()).into());
+                }
+                match &results[0] {
+                    Ok(result) => {
+                        let mut nrd = result.to_nibble_buf_ref();
+                        let digit: u8 = nrd.des_vlu4().context("Deserializing reply")?;
+                        Ok(digit)
+                    }
+                    Err(e) => {
+                        Err(e.clone().into())
+                    }
+                }
+            }
+            u => {
+                Err(NodeError::ExpectedReplyKind("WriteResults".to_owned(), format!("{:?}", u.discriminant())).into())
+            }
+        }
+    }
 }
 
 #[tokio::main]
@@ -146,13 +237,15 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
 
-    info!("starting /sync call");
-    let point = ecbridge_client.sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
-    debug!("point: {:?}", point);
+    // info!("starting /sync call");
+    // let point = ecbridge_client.call_sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
+    // debug!("point: {:?}", point);
 
-    // Call /
-    // let symbol: char = ecbridge_node.symbol.read().await?;
-    // println!("{}", symbol);
+    // let write_result = ecbridge_client.write_digit(7).await;
+    // debug!("Write digit: {:?}", write_result);
+    //
+    let digit = ecbridge_client.read_digit().await;
+    debug!("Read digit: {:?}", digit);
 
 
 
