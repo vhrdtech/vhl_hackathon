@@ -1,24 +1,30 @@
-/*struct Point {
+/// 123
+struct Point {
     x: u16,
     y: u16,
-}*/
+}
 
-#[serdes = vhbytes]
-/main {
+/// B
+enum X { A }
+
+// #[serdes = vhbytes]
+/// 123
+rs main {
     /// Should be initialized on the node and passed to the dispatcher
-    /constant<const u8, #0>
+    #[attr]
+    rs constant<const u8, #0> {}
 
     // Shared resources in rtic
-    #[dispatch = rtic_shared(digit)]
-    #[notify = rtic_spawn(display_task)]
-    /digit<rw u8, #1>
+    // #[dispatch(rtic_shared(digit))]
+    #[notify(rtic_spawn(display_task))]
+    rs digit<rw u8, #1> {}
 
     // Should be called directly from dispatcher
-    #[dispatch = sync(crate::sync)]
-    /sync< fn(p1: Point, p2: Point) -> Point, #5>
+    #[dispatch(sync_call(crate::sync))]
+    rs sync< fn(p1: Point, p2: Point) -> Point, #5> {}
 
     // Should be spawned through rtic and result sent asynchronously later
     // Pass ReturnToken to it with u32 or u64 counter inside to match req/rep even if lower bit id is used
-    // #[dispatch(rtic_defer(crate::app::task_with_return))]
-    /async< fn(p1: Point, p2: Point) -> Point, #6>
+    #[dispatch(rtic_spawn(crate::app::task_with_return))]
+    rs async< fn(p1: Point, p2: Point) -> Point, #6> {}
 }

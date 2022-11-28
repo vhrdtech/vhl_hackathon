@@ -1,4 +1,4 @@
-use crate::{log_error, log_info, log_trace, log_warn};
+use crate::{log_debug, log_error, log_info, log_trace, log_warn};
 use core::cmp::max;
 use rtt_target::rprintln;
 use vhl_cg::point::Point;
@@ -316,11 +316,11 @@ fn dispatch_read_set<'i>(
 /// Returning an error in dry run allows to batch more replies, as some of them might be invalid,
 /// thus requiring space only for an error code.
 fn dispatch_call(
-    mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
+    mut uri: SerialUriIter<Vlu4VecIter<u32>>,
     mut args_nrd: NibbleBuf,
     result_nwr: &mut NibbleBufMut,
 ) -> Result<(), XpiError> {
-    log_info!("dispatch_call({})", uri);
+    log_debug!("dispatch_call({})", uri);
     match uri.next() {
         None => {
             log_error!("Expected root level");
@@ -331,8 +331,8 @@ fn dispatch_call(
             Err(XpiError::NotAMethod)
         }
         Some(2) => {
-            let a = args_nrd.des_vlu4()?;
-            let spawn_r = crate::app::set_digit::spawn(a);
+            let a: u32 = args_nrd.des_vlu4()?;
+            let spawn_r = crate::app::set_digit::spawn(a as u8);
             log_trace!("Spawning /set_digit({}) {:?}", a, spawn_r);
 
             Ok(())
@@ -365,11 +365,10 @@ fn dispatch_call(
             Err(XpiError::BadUri)
         }
     }
-    // unreachable!()
 }
 
 fn dispatch_write(
-    mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
+    mut uri: SerialUriIter<Vlu4VecIter<u32>>,
     mut value_nrd: NibbleBuf,
     shared: &mut DispatcherShared,
 ) -> Result<(), XpiError> {
@@ -380,8 +379,8 @@ fn dispatch_write(
             return Err(XpiError::BadUri);
         }
         Some(1) => {
-            let digit: u8 = value_nrd.des_vlu4()?;
-            shared.digit.lock(|d| *d = digit);
+            let digit: u32 = value_nrd.des_vlu4()?;
+            shared.digit.lock(|d| *d = digit as u8);
             log_info!("write {}", digit);
             let _ = crate::app::display_task::spawn();
             Ok(())
@@ -395,11 +394,10 @@ fn dispatch_write(
             Err(XpiError::BadUri)
         }
     }
-    // unreachable!()
 }
 
 fn dispatch_read(
-    mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
+    mut uri: SerialUriIter<Vlu4VecIter<u32>>,
     value_nwr: &mut NibbleBufMut,
     shared: &mut DispatcherShared,
 ) -> Result<(), XpiError> {
@@ -423,7 +421,6 @@ fn dispatch_read(
             Err(XpiError::BadUri)
         }
     }
-    // unreachable!()
 }
 
 #[derive(Copy, Clone)]
@@ -433,7 +430,7 @@ enum ReplySizeHint {
     /// appropriate dispatcher is called, but it can also return an error, which can be bigger in
     /// size than actual Ok return type, so max(ok_return_ty, XpiError::max_size()) is used.
     Sync {
-        /// max( Ok(&[nib; raw_size]).len_nibbles(), Err(XpiError::<max_code>).len_nibbles() )
+        /// `max( Ok(&[nib; raw_size]).len_nibbles(), Err(XpiError::<max_code>).len_nibbles() )`
         max_size: SerDesSize,
         /// used to create result_nwr of correct size
         raw_size: SerDesSize,
@@ -457,7 +454,7 @@ impl ReplySizeHint {
 ///
 /// TODO: use proper max() or calculate in advance during code gen
 fn reply_size_hint(
-    mut uri: SerialUriIter<Vlu4VecIter<Vlu32>>,
+    mut uri: SerialUriIter<Vlu4VecIter<u32>>,
     event_kind: XpiEventDiscriminant,
 ) -> ReplySizeHint {
     log_trace!("reply_size_hint({})", uri);
