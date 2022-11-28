@@ -24,7 +24,7 @@ use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
 use xpi::event_kind::XpiEventDiscriminant;
 
-use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, SerialUri, ResourceInfo};
+use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, UriOwned, ResourceInfo};
 use xpi_node::node::async_std::{VhNode, NodeError};
 use xpi_node::node::addressing::RemoteNodeAddr;
 use xpi_node::node::filter::{EventFilter, EventKindFilter, NodeSetFilter, SourceFilter};
@@ -79,11 +79,11 @@ impl ECBridgeClient {
         nwr.put(&p2)?;
 
         let request_id = RequestId(3);
-        let dst_node_id = NodeId(1);
+        let dst_node_id = NodeId(0);
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(5)] }),
+            ResourceSet::Uri(UriOwned::new(&[5])),
             EventKind::Call {
                 args_set: vec![nwr.to_nibble_buf_owned()]
             },
@@ -91,12 +91,13 @@ impl ECBridgeClient {
             Priority::Lossy(0)
         );
         self.node.submit_one(ev).await?;
-        let reply = self.node.filter_one(EventFilter {
-            src: SourceFilter::NodeId(dst_node_id),
-            dst: NodeSetFilter::NodeId(self.node.node_id()),
-            kind: EventKindFilter::One(XpiEventDiscriminant::CallResults),
-            request_id: Some(request_id)
-        }).await?;
+        let reply = self.node.filter_one(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
+                .request_id(request_id)
+        ).await?;
         trace!("filter_one returned: {}", reply);
         match reply.kind {
             EventKind::CallResults(results) => {
@@ -132,7 +133,7 @@ impl ECBridgeClient {
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(1)] }),
+            ResourceSet::Uri(UriOwned::new(&[1])),
             EventKind::Write {
                 values: vec![nwr.to_nibble_buf_owned()]
             },
@@ -140,12 +141,13 @@ impl ECBridgeClient {
             Priority::Lossy(0)
         );
         self.node.submit_one(ev).await?;
-        let reply = self.node.filter_one(EventFilter {
-            src: SourceFilter::NodeId(dst_node_id),
-            dst: NodeSetFilter::NodeId(self.node.node_id()),
-            kind: EventKindFilter::One(XpiEventDiscriminant::WriteResults),
-            request_id: Some(request_id)
-        }).await?;
+        let reply = self.node.filter_one(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::One(XpiEventDiscriminant::WriteResults))
+                .request_id(request_id)
+        ).await?;
         trace!("filter_one returned: {}", reply);
         match reply.kind {
             EventKind::WriteResults(results) => {
@@ -171,22 +173,23 @@ impl ECBridgeClient {
     #[allow(dead_code)]
     pub async fn read_digit(&mut self) -> Result<u8> {
         let request_id = RequestId(3);
-        let dst_node_id = NodeId(1);
+        let dst_node_id = NodeId(0);
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(SerialUri { segments: vec![Vlu32(1)] }),
+            ResourceSet::Uri(UriOwned::new(&[1])),
             EventKind::Read,
             request_id,
             Priority::Lossy(0)
         );
         self.node.submit_one(ev).await?;
-        let reply = self.node.filter_one(EventFilter {
-            src: SourceFilter::NodeId(dst_node_id),
-            dst: NodeSetFilter::NodeId(self.node.node_id()),
-            kind: EventKindFilter::One(XpiEventDiscriminant::ReadResults),
-            request_id: Some(request_id)
-        }).await?;
+        let reply = self.node.filter_one(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::One(XpiEventDiscriminant::ReadResults))
+                .request_id(request_id)
+        ).await?;
         trace!("filter_one returned: {}", reply);
         match reply.kind {
             EventKind::ReadResults(results) => {
@@ -196,8 +199,8 @@ impl ECBridgeClient {
                 match &results[0] {
                     Ok(result) => {
                         let mut nrd = result.to_nibble_buf_ref();
-                        let digit: u8 = nrd.des_vlu4().context("Deserializing reply")?;
-                        Ok(digit)
+                        let digit: u32 = nrd.des_vlu4().context("Deserializing reply")?;
+                        Ok(digit as u8)
                     }
                     Err(e) => {
                         Err(e.clone().into())
@@ -216,14 +219,15 @@ async fn main() -> Result<()> {
     let subscriber = FmtSubscriber::builder().with_max_level(Level::TRACE).finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    let addr = "tcp://192.168.0.199:7777";
+    // let addr = "tcp://192.168.0.199:7777";
+    let addr = "tcp://127.0.0.1:7777";
     let addr = RemoteNodeAddr::parse(addr)
         .context(format!("unable to parse socket address: '{}'", addr))?;
 
     // // Establish connection to another node with statically generated xPI
     // // SemVer compatibility checks must pass before any requests can be sent
     // let ecbridge_client = ECBridgeClient::connect(&mut client_node, ecbridge_node_id).await?;
-    let mut ecbridge_client = ECBridgeClient::new(NodeId(2)).await;
+    let mut ecbridge_client = ECBridgeClient::new(NodeId(1)).await;
 
     // let mut local11 = VhNode::new_client(NodeId(11)).await;
     // VhNode::connect_instances(&mut local10, &mut local11).await?;
@@ -238,14 +242,14 @@ async fn main() -> Result<()> {
 
 
     // info!("starting /sync call");
-    // let point = ecbridge_client.call_sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
-    // debug!("point: {:?}", point);
+    let point = ecbridge_client.call_sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
+    debug!("point: {:?}", point);
 
     // let write_result = ecbridge_client.write_digit(7).await;
     // debug!("Write digit: {:?}", write_result);
     //
-    let digit = ecbridge_client.read_digit().await;
-    debug!("Read digit: {:?}", digit);
+    // let digit = ecbridge_client.read_digit().await;
+    // debug!("Read digit: {:?}", digit);
 
 
 
