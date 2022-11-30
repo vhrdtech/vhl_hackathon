@@ -77,7 +77,7 @@ mod app {
         mut ctx: init::Context,
     ) -> (SharedResources, LocalResources, init::Monotonics) {
         rtt_init_print!();
-        log_info!(=>T, "ecbridge_fw_hackathon");
+        info!(=>T, "ecbridge_fw_hackathon");
         // Initialise power...
         let pwr = ctx.device.PWR.constrain();
         let pwrcfg = pwr.freeze();
@@ -102,7 +102,7 @@ mod app {
         let systick = ctx.core.SYST;
         let mono = DwtSystick::new(&mut dcb, dwt, systick, CORE_FREQ);
 
-        log_debug!(=>T, "Core init done");
+        debug!(=>T, "Core init done");
 
         // Initialise IO...
         let gpioa = ctx.device.GPIOA.split(ccdr.peripheral.GPIOA);
@@ -137,7 +137,7 @@ mod app {
         assert_eq!(ccdr.clocks.pclk1().raw(), 100_000_000); // PCLK 100MHz
         assert_eq!(ccdr.clocks.pclk2().raw(), 100_000_000); // PCLK 100MHz
         assert_eq!(ccdr.clocks.pclk4().raw(), 100_000_000); // PCLK 100MHz
-        log_debug!(=>T, "Clocks ok");
+        debug!(=>T, "Clocks ok");
 
         let (eth_mac, eth_mtl, eth_dma, eth_prec) = (
             ctx.device.ETHERNET_MAC,
@@ -190,7 +190,7 @@ mod app {
         // blinky::spawn_after(1u64.secs()).unwrap();
         display_task::spawn().unwrap();
 
-        log_debug!(=>T, "All init done");
+        debug!(=>T, "All init done");
         (
             SharedResources {
                 symbol: '-',
@@ -229,21 +229,21 @@ mod app {
     #[task]
     fn blinky(_ctx: blinky::Context) {
         let time = crate::app::monotonics::now().duration_since_epoch().to_millis();
-        log_info!(=>T, "now: {}ms", time);
+        info!(=>T, "now: {}ms", time);
         blinky::spawn_after(1u64.secs()).unwrap();
     }
 
     /// Must be spawned on Call to /set_digit
     #[task(shared = [digit])]
     fn set_digit(mut ctx: set_digit::Context, digit: u8) {
-        log_info!(=>T, "set_digit task: {}", digit);
+        info!(=>T, "set_digit task: {}", digit);
         ctx.shared.digit.lock(|d| *d = digit);
         display_task::spawn().unwrap();
     }
 
     #[task]
     fn async_task(_cx: async_task::Context, p1: Point, p2: Point) {
-        log_info!(=>T, "async_task: {:?} {:?}", p1, p2);
+        info!(=>T, "async_task: {:?} {:?}", p1, p2);
     }
 
     extern "Rust" {
@@ -274,7 +274,7 @@ unsafe fn HardFault(ef: &cortex_m_rt::ExceptionFrame) -> ! {
 #[exception]
 unsafe fn DefaultHandler(irqn: i16) {
     for i in 0..8 {
-        log_error!(=>i, "Unhandled IRQ: {}", irqn);
+        error!(=>i, "Unhandled IRQ: {}", irqn);
     }
 }
 
@@ -295,7 +295,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
     // }
 
     for i in 0..8 {
-        log_error!(=>i, "{}", info);
+        error!(=>i, "{}", info);
     }
 
     loop {

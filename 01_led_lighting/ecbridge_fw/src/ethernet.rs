@@ -12,7 +12,7 @@ use stm32h7xx_hal::{ethernet as ethernet_h7, stm32};
 use stm32h7xx_hal::ethernet::PinsRMII;
 use stm32h7xx_hal::rcc::{CoreClocks, rec};
 use serde::{Serialize, Deserialize};
-use crate::{log_debug, log_error, log_info, log_trace, log_warn};
+use crate::{debug, error, info, trace, log_warn};
 use rtic::Mutex;
 
 const T: u8 = 0;
@@ -130,12 +130,12 @@ pub fn init(
     };
 
     // Initialise ethernet PHY...
-    log_info!(=>T, "PHY init...");
+    info!(=>T, "PHY init...");
     let mut lan8742a = ethernet_h7::phy::LAN8742A::new(eth_mac);
     use stm32h7xx_hal::ethernet::PHY;
     lan8742a.phy_reset();
     lan8742a.phy_init();
-    log_info!(=>T, "PHY init done.");
+    info!(=>T, "PHY init done.");
     // The eth_dma should not be used until the PHY reports the link is up
 
     unsafe { ethernet_h7::enable_interrupt() };
@@ -186,7 +186,7 @@ impl TryFrom<smoltcp::wire::IpAddress> for IpAddressL {
 
 pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
     let time = crate::app::monotonics::now().duration_since_epoch().to_micros();
-    log_trace!(=>T, "\nethernet_event: {}us", time);
+    trace!(=>T, "\nethernet_event: {}us", time);
     // TODO: figure out why there are a bunch of ethernet_event: 0us at the start
 
     unsafe { ethernet_h7::interrupt_handler() }
@@ -216,7 +216,7 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
         }
         if !tcp_socket.is_open() {
             let r = tcp_socket.listen(7777);
-            log_info!(=>T, "tcp_socket: listen(): {:?}", r);
+            info!(=>T, "tcp_socket: listen(): {:?}", r);
         }
 
         match net.poll_at() {
@@ -224,7 +224,7 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
                 if advised_instant.total_micros() == 0 {
                     continue; // poll() needs to be called immediately
                 } else {
-                    log_debug!(=>T, "advised to run at: {}us", advised_instant.total_micros());
+                    debug!(=>T, "advised to run at: {}us", advised_instant.total_micros());
                     let advised_instant = crate::Instant::from_ticks(
                         advised_instant.total_micros() as u64 * (crate::CORE_FREQ as u64 / 1_000_000)
                     );
@@ -246,26 +246,26 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
         Some(advised_instant) => {
             let poll_at_handle = match poll_at_handle {
                 Some(poll_at_handle) => {
-                    log_debug!(=>T,
+                    debug!(=>T,
                         "handle before exists, t={}us",
                         poll_at_handle.originally_scheduled_at.duration_since_epoch().to_micros()
                     );
                     if advised_instant < poll_at_handle.originally_scheduled_at {
-                        log_debug!(=>T, "rescheduling smoltcp_poll_at at an earlier time");
+                        debug!(=>T, "rescheduling smoltcp_poll_at at an earlier time");
                         poll_at_handle.handle.reschedule_at(advised_instant).map(|handle| {
-                            log_debug!(=>T, "reschedule success");
+                            debug!(=>T, "reschedule success");
                             PollAtHandle {
                                 originally_scheduled_at: advised_instant,
                                 handle
                             }
                         }).ok()
                     } else {
-                        log_debug!(=>T, "no need to reschedule");
+                        debug!(=>T, "no need to reschedule");
                         Some(poll_at_handle)
                     }
                 }
                 None => {
-                    log_debug!(=>T, "handle before is None");
+                    debug!(=>T, "handle before is None");
                     match crate::app::smoltcp_poll_at::spawn_at(advised_instant) {
                         Ok(handle) => {
                             Some(PollAtHandle {
@@ -286,7 +286,7 @@ pub fn ethernet_event(mut ctx: crate::app::ethernet_event::Context) {
             match poll_at_handle {
                 Some(poll_at_handle) => {
                     let r = poll_at_handle.handle.cancel();
-                    log_trace!(=>T, "cancelling (if not too late to) smoltcp_poll_at: {:?}", r);
+                    trace!(=>T, "cancelling (if not too late to) smoltcp_poll_at: {:?}", r);
                 }
                 None => {}
             }
@@ -306,7 +306,7 @@ fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Produce
                 let endpoint: IpEndpointL = match remote_endpoint.try_into() {
                     Ok(endpoint) => endpoint,
                     Err(_) => {
-                        log_error!(=>T, "wrong endpoint address");
+                        error!(=>T, "wrong endpoint address");
                         return;
                     }
                 };
@@ -321,11 +321,11 @@ fn handle_tcp_rx(tcp_socket: &mut TcpSocket, eth_out_prod: &mut bbqueue::Produce
                         wgr.commit(buf.len() + endpoint_ser_len);
                         let r = crate::app::link_process::spawn();
                         if r.is_err() {
-                            log_error!(=>T, "link_process: spawn failed");
+                            error!(=>T, "link_process: spawn failed");
                         }
                     }
                     Err(_) => {
-                        log_error!(=>T, "grant failed");
+                        error!(=>T, "grant failed");
                     }
                 }
             }
@@ -358,7 +358,7 @@ fn handle_tcp_tx(tcp_socket: &mut TcpSocket, eth_in_cons: &mut bbqueue::Consumer
 
 pub fn smoltcp_poll_at(mut cx: crate::app::smoltcp_poll_at::Context) {
     let time = crate::app::monotonics::now().duration_since_epoch().to_micros();
-    log_trace!("smoltcp_poll_at: {}us", time);
+    trace!("smoltcp_poll_at: {}us", time);
 
     cx.shared.poll_at_handle.lock(|h| *h = None);
     rtic::pend(stm32h7xx_hal::pac::Interrupt::ETH);

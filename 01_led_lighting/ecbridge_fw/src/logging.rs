@@ -49,7 +49,7 @@ macro_rules! _log_internal {
 
 #[cfg(feature = "log-level-trace")]
 #[macro_export]
-macro_rules! log_trace {
+macro_rules! trace {
     ($($arg:tt)*) => {
         crate::_log_internal!(trace, $($arg)*);
     };
@@ -59,11 +59,11 @@ macro_rules! log_trace {
 macro_rules! log_trace {
     ($($arg:tt)*) => {}
 }
-pub use log_trace;
+pub use trace;
 
 #[cfg(feature = "log-level-debug")]
 #[macro_export]
-macro_rules! log_debug {
+macro_rules! debug {
     ($($arg:tt)*) => {
         crate::_log_internal!(debug, $($arg)*);
     };
@@ -73,11 +73,11 @@ macro_rules! log_debug {
 macro_rules! log_debug {
     ($($arg:tt)*) => {}
 }
-pub use log_debug;
+pub use debug;
 
 #[cfg(feature = "log-level-info")]
 #[macro_export]
-macro_rules! log_info {
+macro_rules! info {
     ($($arg:tt)*) => {
         crate::_log_internal!(info, $($arg)*);
     };
@@ -87,7 +87,7 @@ macro_rules! log_info {
 macro_rules! log_info {
     ($($arg:tt)*) => {}
 }
-pub use log_info;
+pub use info;
 
 #[cfg(feature = "log-level-warn")]
 #[macro_export]
@@ -105,7 +105,7 @@ pub use log_warn;
 
 #[cfg(feature = "log-level-error")]
 #[macro_export]
-macro_rules! log_error {
+macro_rules! error {
     ($($arg:tt)*) => {
         crate::_log_internal!(error, $($arg)*);
     };
@@ -115,4 +115,4 @@ macro_rules! log_error {
 macro_rules! log_error {
     ($($arg:tt)*) => {}
 }
-pub use log_error;
+pub use error;
