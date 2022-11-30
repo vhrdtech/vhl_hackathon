@@ -83,7 +83,7 @@ impl ECBridgeClient {
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(UriOwned::new(&[5])),
+            ResourceSet::Uri(UriOwned::new(&[0, 2, 0])),
             EventKind::Call {
                 args_set: vec![nwr.to_nibble_buf_owned()]
             },
