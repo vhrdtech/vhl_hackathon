@@ -20,7 +20,7 @@ use vhl_stdlib::serdes::traits::SerializeBytes;
 use vhl_stdlib::serdes::nibble_buf::Error as NibbleBufError;
 use vhl_stdlib::serdes::buf::Error as BufError;
 use vhl_stdlib::serdes::bit_buf::Error as BitBufError;
-use vhl_stdlib::serdes::vlu4::{Vlu32, Vlu4Vec, Vlu4VecBuilder};
+use vhl_stdlib::serdes::vlu4::{Vlu32N, Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
 use xpi::event_kind::XpiEventDiscriminant;
 
@@ -67,7 +67,7 @@ impl ECBridgeClient {
     }
 
     pub async fn connect_remote(&mut self, addr: RemoteNodeAddr) -> Result<(), NodeError> {
-        self.node.connect_remote(addr).await
+        self.node.connect_remote(addr, vec![NodeId(0)]).await
     }
 
     #[allow(dead_code)]
@@ -83,7 +83,7 @@ impl ECBridgeClient {
         let ev = Event::new_with_default_ttl(
             self.node.node_id(),
             NodeSet::Unicast(dst_node_id),
-            ResourceSet::Uri(UriOwned::new(&[0, 2, 0])),
+            ResourceSet::Uri(UriOwned::new(&[0, 11, 2, 0])),
             EventKind::Call {
                 args_set: vec![nwr.to_nibble_buf_owned()]
             },
