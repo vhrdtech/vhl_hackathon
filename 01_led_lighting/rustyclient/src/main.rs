@@ -24,7 +24,8 @@ use vhl_stdlib::serdes::vlu4::{Vlu32N, Vlu4Vec, Vlu4VecBuilder};
 use xpi::error::XpiError;
 use xpi::event_kind::XpiEventDiscriminant;
 
-use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, UriOwned, ResourceInfo};
+use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, EventKind, UriOwned, ResourceInfo, MultiUriOwned};
+use xpi::xwfd::UriMask;
 use xpi_node::node::async_std::{VhNode, NodeError};
 use xpi_node::node::addressing::RemoteNodeAddr;
 use xpi_node::node::filter::{EventFilter, EventKindFilter, NodeSetFilter, SourceFilter};
@@ -114,6 +115,99 @@ impl ECBridgeClient {
                         Err(e.clone().into())
                     }
                 }
+            }
+            u => {
+                Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())).into())
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn call1_unit(&mut self, uri: UriOwned) -> Result<()> {
+        let mut args = Vec::new();
+        let mut nwr = NibbleBufMut::new_all(&mut args);
+
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(0);
+        let ev = Event::new_with_default_ttl(
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
+            ResourceSet::Uri(uri),
+            EventKind::Call {
+                args_set: vec![nwr.to_nibble_buf_owned()]
+            },
+            request_id,
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let reply = self.node.filter_one(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
+                .request_id(request_id)
+        ).await?;
+        trace!("filter_one returned: {}", reply);
+        match reply.kind {
+            EventKind::CallResults(results) => {
+                if results.len() != 1 {
+                    return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()).into());
+                }
+                match &results[0] {
+                    Ok(result) => {
+                        Ok(())
+                    }
+                    Err(e) => {
+                        Err(e.clone().into())
+                    }
+                }
+            }
+            u => {
+                Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())).into())
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub async fn call_many_unit(&mut self, multi_uri: MultiUriOwned) -> Result<()> {
+        let mut args = Vec::new();
+        let mut nwr = NibbleBufMut::new_all(&mut args);
+
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(0);
+        let ev = Event::new_with_default_ttl(
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
+            ResourceSet::MultiUri(multi_uri),
+            EventKind::Call {
+                args_set: vec![nwr.to_nibble_buf_owned(), nwr.to_nibble_buf_owned()]
+            },
+            request_id,
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let reply = self.node.filter_one(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
+                .request_id(request_id)
+        ).await?;
+        trace!("filter_one returned: {}", reply);
+        match reply.kind {
+            EventKind::CallResults(results) => {
+                // if results.len() != 1 {
+                //     return Err(NodeError::ExpectedDifferentAmountOf("CallComplete results".to_owned()).into());
+                // }
+                // match &results[0] {
+                //     Ok(result) => {
+                //         Ok(())
+                //     }
+                //     Err(e) => {
+                //         Err(e.clone().into())
+                //     }
+                // }
+                Ok(())
             }
             u => {
                 Err(NodeError::ExpectedReplyKind("CallComplete".to_owned(), format!("{:?}", u.discriminant())).into())
@@ -216,7 +310,10 @@ impl ECBridgeClient {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let subscriber = FmtSubscriber::builder().with_max_level(Level::TRACE).finish();
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .with_env_filter("rustyclient=trace,xpi_node=trace")
+        .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
     // let addr = "tcp://192.168.0.199:7777";
@@ -236,14 +333,14 @@ async fn main() -> Result<()> {
     // println!("filter one: {:?}", smth);
 
     ecbridge_client.connect_remote(addr).await?;
-
-
     tokio::time::sleep(Duration::from_millis(50)).await;
 
+    // debug!("call_sync_unit: {:?}", ecbridge_client.call1_unit(UriOwned::new(&[0, 11, 2, 0])).await?);
+    // debug!("call_sync_unit: {:?}", ecbridge_client.call1_unit(UriOwned::new(&[0, 11, 2, 1])).await?);
 
-    // info!("starting /sync call");
-    let point = ecbridge_client.call_sync(Point{ x: 5, y: 7 }, Point{ x: 10, y: 20 }).await?;
-    debug!("point: {:?}", point);
+    let mut mu = MultiUriOwned::new();
+    mu.push(UriOwned::new(&[0, 11, 2]), UriMask::ByBitfield8(0b1100_0000));
+    debug!("call_many_unit: {:?}", ecbridge_client.call_many_unit(mu).await?);
 
     // let write_result = ecbridge_client.write_digit(7).await;
     // debug!("Write digit: {:?}", write_result);
