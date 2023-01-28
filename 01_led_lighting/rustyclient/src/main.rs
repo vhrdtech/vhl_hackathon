@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::env;
 use std::net::{AddrParseError, SocketAddr};
 use std::sync::{Arc, RwLock, TryLockResult};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tracing::{debug, info, Level, trace};
@@ -93,7 +93,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new()
+            EventFilter::new(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -141,7 +141,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new()
+            EventFilter::new(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -187,7 +187,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new()
+            EventFilter::new(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -236,7 +236,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new()
+            EventFilter::new(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::WriteResults))
@@ -278,7 +278,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new()
+            EventFilter::new(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::ReadResults))
@@ -332,7 +332,7 @@ async fn main() -> Result<()> {
     // let smth = local10.filter_one( () ).await;
     // println!("filter one: {:?}", smth);
 
-    ecbridge_client.connect_remote(addr).await?;
+    // ecbridge_client.connect_remote(addr).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // debug!("call_sync_unit: {:?}", ecbridge_client.call1_unit(UriOwned::new(&[0, 11, 2, 0])).await?);
@@ -340,7 +340,9 @@ async fn main() -> Result<()> {
 
     let mut mu = MultiUriOwned::new();
     mu.push(UriOwned::new(&[0, 11, 2]), UriMask::ByBitfield8(0b1100_0000));
-    debug!("call_many_unit: {:?}", ecbridge_client.call_many_unit(mu).await?);
+    let before = Instant::now();
+    debug!("call_many_unit: {:?}", ecbridge_client.call_many_unit(mu).await);
+    debug!("dt: {:?}", before.elapsed());
 
     // let write_result = ecbridge_client.write_digit(7).await;
     // debug!("Write digit: {:?}", write_result);
