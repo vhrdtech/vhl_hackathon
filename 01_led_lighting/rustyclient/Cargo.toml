@@ -11,7 +11,7 @@ tokio = { version = "^1.20.1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 #tokio-stream = "^0.1.9"
-#futures = "0.3.24"
+futures = "0.3.25"
 
 vhl-stdlib = { path = "../../../vhl/vhl-stdlib/vhl-stdlib-rust" }
 xpi = { path = "../../../vhl/vhl-stdlib/xpi-rust" }

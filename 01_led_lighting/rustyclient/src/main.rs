@@ -8,6 +8,9 @@ use std::sync::{Arc, RwLock, TryLockResult};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use futures::channel::mpsc;
+use futures::channel::mpsc::Receiver;
+use futures::{SinkExt, StreamExt};
 use tracing::{debug, info, Level, trace};
 use tracing_subscriber::FmtSubscriber;
 
@@ -28,7 +31,7 @@ use xpi::owned::{NodeSet, RequestId, ResourceSet, Priority, NodeId, Event, Event
 use xpi::xwfd::UriMask;
 use xpi_node::node::async_std::{VhNode, NodeError};
 use xpi_node::node::addressing::RemoteNodeAddr;
-use xpi_node::node::filter::{EventFilter, EventKindFilter, NodeSetFilter, SourceFilter};
+use xpi_node::node::filter::{EventFilter, EventKindFilter, NodeSetFilter, ResourceSetFilter, SourceFilter};
 
 #[derive(Debug)]
 enum MyError {
@@ -93,7 +96,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new(Duration::from_millis(100))
+            EventFilter::new_with_timeout(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -141,7 +144,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new(Duration::from_millis(100))
+            EventFilter::new_with_timeout(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -187,7 +190,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new(Duration::from_millis(100))
+            EventFilter::new_with_timeout(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::CallResults))
@@ -215,6 +218,41 @@ impl ECBridgeClient {
         }
     }
 
+    pub async fn observe_one(&mut self) -> Result<Receiver<u8>, NodeError> {
+        let request_id = RequestId(3);
+        let dst_node_id = NodeId(0);
+        let ev = Event::new_with_default_ttl(
+            self.node.node_id(),
+            NodeSet::Unicast(dst_node_id),
+            ResourceSet::Uri(UriOwned::new(&[2, ])),
+            EventKind::Subscribe {
+                rates: Vec::new()
+            },
+            request_id,
+            Priority::Lossy(0)
+        );
+        self.node.submit_one(ev).await?;
+        let mut updates = self.node.filter_many(
+            EventFilter::new()
+                .src(SourceFilter::NodeId(dst_node_id))
+                .dst(NodeSetFilter::NodeId(self.node.node_id()))
+                .kind(EventKindFilter::Two(XpiEventDiscriminant::SubscribeResults, XpiEventDiscriminant::StreamUpdates))
+                .resource_set(ResourceSetFilter::ContainsUri(UriOwned::new(&[2])))
+                .drop_on_remote_disconnect(true)
+                .request_id(request_id)
+        ).await?;
+        let (mut tx, rx) = mpsc::channel(1);
+        tokio::spawn(async move {
+            while let Some(event) = updates.next().await {
+                debug!("event in observe: {:?}", event);
+                if tx.send(1).await.is_err() {
+                    break
+                }
+            }
+        });
+        Ok(rx)
+    }
+
     #[allow(dead_code)]
     pub async fn write_digit(&mut self, digit: u8) -> Result<()> {
         let mut args = Vec::new();
@@ -236,7 +274,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new(Duration::from_millis(100))
+            EventFilter::new_with_timeout(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::WriteResults))
@@ -278,7 +316,7 @@ impl ECBridgeClient {
         );
         self.node.submit_one(ev).await?;
         let reply = self.node.filter_one(
-            EventFilter::new(Duration::from_millis(100))
+            EventFilter::new_with_timeout(Duration::from_millis(100))
                 .src(SourceFilter::NodeId(dst_node_id))
                 .dst(NodeSetFilter::NodeId(self.node.node_id()))
                 .kind(EventKindFilter::One(XpiEventDiscriminant::ReadResults))
@@ -332,17 +370,22 @@ async fn main() -> Result<()> {
     // let smth = local10.filter_one( () ).await;
     // println!("filter one: {:?}", smth);
 
-    // ecbridge_client.connect_remote(addr).await?;
+    ecbridge_client.connect_remote(addr).await?;
     tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let mut updates = ecbridge_client.observe_one().await?;
+    while let Some(value) = updates.next().await {
+        info!("new value: {value}");
+    }
 
     // debug!("call_sync_unit: {:?}", ecbridge_client.call1_unit(UriOwned::new(&[0, 11, 2, 0])).await?);
     // debug!("call_sync_unit: {:?}", ecbridge_client.call1_unit(UriOwned::new(&[0, 11, 2, 1])).await?);
 
-    let mut mu = MultiUriOwned::new();
-    mu.push(UriOwned::new(&[0, 11, 2]), UriMask::ByBitfield8(0b1100_0000));
-    let before = Instant::now();
-    debug!("call_many_unit: {:?}", ecbridge_client.call_many_unit(mu).await);
-    debug!("dt: {:?}", before.elapsed());
+    // let mut mu = MultiUriOwned::new();
+    // mu.push(UriOwned::new(&[0, 11, 2]), UriMask::ByBitfield8(0b1100_0000));
+    // let before = Instant::now();
+    // debug!("call_many_unit: {:?}", ecbridge_client.call_many_unit(mu).await);
+    // debug!("dt: {:?}", before.elapsed());
 
     // let write_result = ecbridge_client.write_digit(7).await;
     // debug!("Write digit: {:?}", write_result);
@@ -394,6 +437,6 @@ async fn main() -> Result<()> {
     // let reply: XpiReply = rdr.des_vlu4().unwrap();
     // println!("{:?}", reply);
 
-    //tokio::time::sleep(Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     Ok(())
 }
